@@ -7,7 +7,7 @@ branch=$(git rev-parse --abbrev-ref HEAD)
 case "$branch" in
   main|master)
     echo "" >&2
-    echo "[拒绝提交] 当前分支是 $branch，本仓库禁止直接提交主分支。" >&2
+    echo "[拒绝提交] 当前分支是 ${branch}，本仓库禁止直接提交主分支。" >&2
     echo "请先切到新分支：" >&2
     echo "  git switch -c docs/<topic>" >&2
     echo "" >&2
