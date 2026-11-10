@@ -1,6 +1,23 @@
 # Uber ADR Discovery 源码笔记
 
-> 版本锚定：`uber/ADR` 仓库 `Discovery/` 目录，catalog `2026.10.12`，schema `1.2`，Python 3.11+，仅标准库。
+> 版本锚定：`uber/ADR` 仓库 `Discovery/` 目录，commit `6b33dffecd719708c435f772c9e93f1210944e31`（2026-10-16），catalog `2026.10.12`，schema `1.2`，Python 3.11+，仅标准库。检出时间 2026-11-07，本机复跑时间 2026-11-10。
+
+结论按证据来源分四类，正文在句末用方括号标注，未标注的默认 `[S]`：
+
+| 标记 | 含义 | 复核方式 |
+|---|---|---|
+| `[S]` | 源码直接确认 | 附录给出 `文件:行号` |
+| `[T]` | 单元测试确认 | `adr_discovery/tests_unit/` 下的用例名，见第七章 |
+| `[O]` | 本机实跑观察 | 第六章原始输出 |
+| `[I]` | 由源码或实测推导 | 未单独验证 |
+
+三平台的验证程度不同：
+
+| 平台 | 依据 | 未覆盖 |
+|---|---|---|
+| darwin | 本机实跑 + 单元测试 + 源码 | 进程通道（`/bin/ps` 被沙箱拒绝），见 6.5.6 |
+| linux | 单元测试（`LinuxProviders` 夹具）+ 源码 | 无真机 |
+| windows | 源码 | 无测试用例、无真机 |
 
 ## 目录
 
@@ -24,6 +41,7 @@
   - [3.1 Coverage 七字段](#31-coverage-七字段)
   - [3.2 Redaction 规则](#32-redaction-规则)
   - [3.3 预算与架构的对应](#33-预算与架构的对应)
+  - [3.4 边界条件](#34-边界条件)
 - [四、三平台实现差异](#四三平台实现差异)
 - [五、CLI](#五cli)
 - [六、实测（macOS，本机）](#六实测macos本机)
@@ -36,9 +54,13 @@
   - [6.7 汇总](#67-汇总)
   - [6.8 catalog 外产品](#68-catalog-外产品)
   - [6.9 diff](#69-diff)
-- [七、缺口](#七缺口)
-  - [7.1 代码限制](#71-代码限制)
-  - [7.2 设计取舍](#72-设计取舍)
+- [七、测试覆盖](#七测试覆盖)
+  - [7.1 用例分布](#71-用例分布)
+  - [7.2 模块与用例对应](#72-模块与用例对应)
+  - [7.3 未覆盖的部分](#73-未覆盖的部分)
+- [八、缺口](#八缺口)
+  - [8.1 代码限制](#81-代码限制)
+  - [8.2 设计取舍](#82-设计取舍)
 - [附录 代码坐标索引](#附录-代码坐标索引)
 
 ---
@@ -205,7 +227,7 @@ MANIFESTS = {
 
 | 字段 | 含义 |
 |---|---|
-| `asset_id` | 稳定哈希，跨扫描不变 |
+| `asset_id` | 稳定哈希，三个输入不变时跨扫描不变，见 2.6.2 |
 | `kind` | 18 类之一 |
 | `name` | 展示名 |
 | `catalog_id` | 命中目录时为目录 id，否则空 |
@@ -646,6 +668,28 @@ THRESHOLD = 0.40
 
 达到阈值进 `review_queue`，不进 `assets`。`review_queue` 是待人工确认，不是已确认。
 
+#### 2.5.6 候选的三个去向
+
+一个对象要进 `assets`，要过三道流程，中途失败就没有记录：
+
+| 阶段 | 产出 | 本机实测 |
+|---|---|---|
+| 候选发现（M2） | `Candidate` | `from_applications` 返回 73 条记录，每条一个候选 |
+| 资产识别（M4） | `Observation`、`ReviewItem`，或丢弃 | `/Applications/WorkBuddy AI.app` 未结论，开放世界得分 0，无信号 |
+| 资产登记（M5、M7） | `assets` 里的 `Asset` | 该 app 不在 169 条资产里 |
+
+识别失败的候选，得分 ≥ 0.40 或命中 `network_intent` 才进 `review_queue`；两者都不满足就直接丢弃，`coverage` 不留记录，`snapshot` 里看不出它存在过。M4 循环里这类候选只有两种结局，进 `review_queue` 或什么都不做。
+
+这个 app 的识别结果 `[O]`：
+
+```
+('application', False, 0, '/Applications/WorkBuddy AI.app')
+```
+
+四元组依次是 kind、是否结论、开放世界得分、路径。`identify` 返回的证据只有一条 `filesystem / no conclusive evidence`。
+
+「没有出现在资产清单里」因此有三种可能：没有被枚举到、被枚举到但没有识别出来、识别出来但被合并进别的资产。三种在 `snapshot` 里结果相同。第一种有时能在 `coverage` 的 `denied` 与 `boundaries_hit` 里找到线索，后两种不留痕迹。
+
 ### 2.6 M5 Resolve
 
 `resolver/merge.py` 用 union-find 分组，按固定顺序尝试 7 个键：
@@ -654,25 +698,43 @@ THRESHOLD = 0.40
 content → realpath → inode → package → install → catalog → identity
 ```
 
-| 键 | 命中条件 |
-|---|---|
-| `content` | 文件内容 hash 相同 |
-| `realpath` | 软链接解析后路径相同 |
-| `inode` | 同一文件系统上的同一 inode |
-| `package` | 同一包管理器的同一包 |
-| `install` | 同一 install root |
-| `catalog` | 命中同一目录条目 |
-| `identity` | 同 kind + 同 identity |
+| 键 | 命中条件 | 取值 |
+|---|---|---|
+| `content` | 文件内容 hash 相同 | `obs.content_hash` |
+| `realpath` | 软链接解析后路径相同 | `obs.real_path` |
+| `inode` | 同一文件系统上的同一 inode | `obs.inode` |
+| `package` | 同一包管理器的同一包 | `obs.package_id` |
+| `install` | 属性观测所属的安装路径相同 | `obs.attribute_of`，缺省用 `obs.path` |
+| `catalog` | 命中同一目录条目 | `catalog_id\|owner\|归一化 install_root` |
+| `identity` | 同 kind、同 identity、同 owner | `kind\|identity\|owner` |
 
-顺序从硬到软。`content` 最硬，内容相同即同一对象；`identity` 最软，靠名字对上。
+顺序决定尝试次序，不决定合并结果。每一次 `union` 都要过 2.6.1 的身份校验，键再硬也不能绕开。`content` 相同只说明字节相同，落在两个目录里的同一份文件、同一工具的两个安装实例、vendored 副本与发行版，都可能有相同字节。`test_u5_04` 断言内容合并成立时，两条观测的 identity 本来就是同一个；`test_u5_14` 断言同工具的两个安装实例保持两个资产。
+
+本机 1899 个候选在 7 个键上的实际分布 `[O]`：
+
+| 键 | 触发合并的键组 | 成功合并 | 被身份校验拒绝 |
+|---|---|---|---|
+| `content` | 0 | 0 | 0 |
+| `realpath` | 0 | 0 | 0 |
+| `inode` | 0 | 0 | 0 |
+| `package` | 1 | 1 | 0 |
+| `install` | 13 | 0 | 50 |
+| `catalog` | 2 | 9 | 0 |
+| `identity` | 0 | 0 | 0 |
+
+`content` 键在本机 0 次触发，因为没有任何两条文件观测的 SHA-256 相同。`content_hash` 只对文件计算（`pipeline.py:248`），skill 目录走 `hash_tree` 进 `skill_sha256`，不参与这个键。这条键的行为只有测试覆盖，没有实测数据。
 
 #### 2.6.1 identity guard
 
 union-find 存在桥接误并：A 与 B 通过一个观察合并，B 与 C 通过另一个观察合并，最终 A 与 C 被并成一个。
 
-`merge.py` 在合并时校验 identity，两组 identity 冲突（同 kind 但 identity 不同）则拒绝合并。
+`merge.py::_Groups.union` 在合并前检查合并后组内的 identity 集合，出现两个不同的 identity 字符串就返回 `False`。校验对象是字符串本身，与 kind 无关。
 
 合并过头的后果比漏合并严重。漏合并会看到重复项，容易被注意到；合并过头后总数正常，只是少了一个资产，不会被察觉。
+
+本机的 50 次拒绝全部来自 `install` 键，分布在 13 个键组上 `[O]`：19 个观测一组拒绝 18 次，17 个一组拒绝 16 次，5 个一组拒绝 4 次，3 个一组两组各拒绝 2 次，2 个一组八组各拒绝 1 次。同一插件目录下的多个 skill 共享 `attribute_of`，锚点之外的每一个都被拒绝。冲突形态是锚点对多个兄弟节点，不是 A-B-C 的链式桥接。
+
+把校验去掉重跑，资产从 169 降到 119，MCP server 从 6 降到 2 `[O]`。少掉的 50 个里 48 个是插件缓存目录下的 skill，2 个来自同一 `settings.json` 里声明的三条观测。
 
 #### 2.6.2 asset_id
 
@@ -683,11 +745,30 @@ def asset_id(kind: str, identity: str, owner: str, install_root: str | None) -> 
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 ```
 
-四个输入，32 位十六进制输出。`normalize_root` 排除三类内容：
+四个输入：`kind`、`identity`、`owner`、归一化后的 `install_root`。版本号与凭据不在输入里，所以升级和换 token 都不改 id。
 
-- 版本号
-- 凭据
-- Nix / GNU store 的 build hash（`/nix/store/abc123...-foo` 中的 `abc123`）
+`normalize_root` 只认三种内容寻址布局：
+
+```python
+_STORE_PATTERNS = (
+    re.compile(r"^(/nix/store)/[a-z0-9]{32}-(.+?)(/.*)?$"),
+    re.compile(r"^(/gnu/store)/[a-z0-9]{32}-(.+?)(/.*)?$"),
+    re.compile(r"^(.*/\.pnpm)/[^/]+@[^/]+(/.*)?$"),
+)
+```
+
+稳定性的前提是三个输入都不变：
+
+| 变化 | id 是否变 | 原因 |
+|---|---|---|
+| 版本升级 | 否 | `version` 不在输入里 |
+| 换 API key | 否 | 凭据不进哈希 |
+| nix / gnu store 重建 | 否 | build hash 被归一化 |
+| 配置文件换位置 | 是 | identity 含路径，实测 `mcp_server:node_repl@/Users/<user>/.codex/config.toml` |
+| 换 owner | 是 | `owner` 是输入 |
+| 插件缓存换 hash 目录 | 是 | `plugins/cache/<vendor>/<name>/<hash>` 不匹配上面三个模式 `[I]` |
+
+`test_u5_09` 到 `test_u5_11` 覆盖前三行，断言同一组输入产生同一个 id。后三行没有测试，也没有实测数据。
 
 排除版本号决定了 diff 能识别 `version_changed` 而不是 `disappeared + appeared`。
 
@@ -776,9 +857,11 @@ def _may_be_judged(asset: Asset) -> bool:
     return bool(asset.catalog_id)
 ```
 
-MCP server 需命中目录或置信度不为 `none`；其他类型必须命中目录。
+MCP server 只要 `catalog_id` 非空，或 `confidence.label` 不是 `none`，就通过；其他类型必须有 `catalog_id`。
 
-这道门槛导致实测中 findings 为 0：6 个 MCP server 全是 `declared_only`、`pinned=None`，置信度不足，未触发任何规则。
+本机 6 个 MCP server 的 `confidence.label` 都是 `low`，全部通过这道门槛。把门槛强制改成 `return True` 重跑，findings 仍然是 0 `[O]`。6.6 的 0 条 finding 与门槛无关，是六条规则各自的条件都没有满足。
+
+门槛拦下的是另一类对象：只有命令行形态、没有配置声明的进程。`findings.py` 的文件头记了两个已经付过代价的误报，其中 `npx eslint .` 被判成高危 MCP server，源码注释直接把这道门槛定义成「`npx eslint .` 过不了的那一条」。`test_u6_09` 断言这两个误报保持沉默。
 
 #### 2.7.7 sanction 四态
 
@@ -941,11 +1024,37 @@ def explain():
 
 `max_entries` 直接决定可见范围。实测从 12000 降到 3000，资产从 169 降到 58，MCP server 从 6 降到 1。该变化同时反映在 `boundaries_hit`（1879 降到 366）与 `denied`（149 降到 97），资产表本身看不出差别。
 
+### 3.4 边界条件
+
+| 场景 | 处理 | 证据 |
+|---|---|---|
+| 配置文件损坏 | 逐记录隔离，坏记录跳过，同文件其余记录继续读；文件级失败记 `degraded` | `extractor/isolate.py`，实测 `JSONDecodeError` 见 6.5.6 |
+| frontmatter 键不可读 | 跳过该键，资产仍记录 | 实测 6 个目录，跳过 1 至 17 个键 |
+| 软链接指向同一文件 | `realpath` 键并成一个资产；软链接不算第二个证据通道 | `test_u5_02` |
+| 同一 inode 两个路径 | `inode` 键合并 | `test_u5_05` |
+| 目录循环 | 递归深度上限 12，超过记 `boundaries_hit` | `Budget.max_depth` |
+| 单文件过大 | 调用方传 `limit`，超出记 `truncated` 并返回已读部分 | 实测 1 条：`SKILL.md` 保留 65536 字节，原文件 71942 字节 |
+| 单目录过大 | 子项上限 5000，单 bin 目录 2000 个文件，单配置文件 500 条记录 | `max_children`、`MAX_PER_ROOT`、`RECORD_CAP` |
+| 权限不足 | 记 `denied`，扫描继续 | 实测 149 条 |
+| 多用户 | `owner` 进 asset_id 与 `catalog` 键；单用户扫描时 `username` 只有一个 | 本机单用户，多用户未测 |
+| 同名不同身份 | identity guard 拒绝合并 | `test_u5_03`、`test_u5_06` |
+| 同一资产多处声明 | `catalog` 键按 `catalog_id\|owner\|root` 合并 | 实测 2 组、9 次合并 |
+| 扫描期间资产变化 | 单次快照，无锁，前后不一致无法从快照本身看出 | 未测 |
+| 扫描范围变化 | `--root` 改变会让资产整体 `disappeared` 加 `appeared`；diff 校验 hostname，跨主机需 `--allow-cross-endpoint` | `reporter/delta.py::diff` |
+
 ---
 
 ## 四、三平台实现差异
 
 `world/platform/` 三个文件，均继承 `HostResolver` + `NullProviders`。
+
+三列的证据强度不同，读下面的表之前先看这张：
+
+| 平台 | 本机实跑 | 单元测试 | 未覆盖 |
+|---|---|---|---|
+| darwin | 是 | 是 | 进程通道，`/bin/ps` 被沙箱拒绝，`sockets` 正常 |
+| linux | 否 | 是（`LinuxProviders` 夹具） | 无真机 |
+| windows | 否 | 否 | 无真机、无用例，`WindowsProviders` 未出现在任何测试文件里 |
 
 | 能力 | darwin | linux | windows |
 |---|---|---|---|
@@ -956,7 +1065,7 @@ def explain():
 | 包管理 | brew Cellar | dpkg / apk / snap / flatpak / rpm | 无 |
 | DNS cache | 不可用 | resolvectl，仅暴露 counters | 无 |
 
-darwin 用 `lsof` 而非 `netstat`，因为 `lsof` 提供进程与连接的对应关系。`ps` 与 `lsof` 均走 `run_helper`，超时 5 秒。
+darwin 用 `lsof` 而非 `netstat`，因为 `lsof` 提供进程与连接的对应关系。`ps` 与 `lsof` 均走 `run_helper`，超时 5 秒。本机 `/bin/ps` 调用失败，darwin 的进程侧实现没有经过实跑，只经过源码与 `DarwinProviders` 用例。
 
 linux 直接读 `/proc`，比调命令快且不需额外权限。`/proc/net/tcp` 中地址为十六进制，需手工解析。resolvectl 只暴露 counters，因此 Linux 上 DNS cache 为 `unavailable`。
 
@@ -1017,6 +1126,8 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 ```
 
 耗时 24 秒，退出码 2。下文全部数字来自同一次运行。路径中的用户名替换为 `<user>`，主机名替换为 `<host>`。
+
+2026-11-10 用同样参数复跑，候选 1899、扫描前条目 1925、sockets 183、boundaries 1882，资产仍是 169。机器上增删过文件，过程计数跟着变，资产数不变。
 
 ### 6.2 CLI 输出原文
 
@@ -1318,7 +1429,18 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `resolver` | `50 bridging merge(s) refused` | identity guard 拒绝 50 次桥接合并 |
 | `/bin/ps` | `Operation not permitted` | 沙箱禁止，进程侧为空 |
 
-`50 bridging merge(s) refused` 是 identity guard 的实际工作量。这 50 次若放行，会把 50 组不同身份的资产并成一个，总数从 169 变成 119 左右而不报错。
+`50 bridging merge(s) refused` 是 identity guard 的拒绝次数，不是资产组数。把拒绝逐条记录后，50 次落在 13 个 `install` 键组上 `[O]`：
+
+| 键组 | 观测数 | 拒绝次数 |
+|---|---|---|
+| `~/.codex/plugins/cache/openai-api-curated/build-web-data-visualization/bd2122cb` | 19 | 18 |
+| `~/.codex/plugins/cache/openai-api-curated/codex-security/b767f8fa` | 17 | 16 |
+| `~/.codex/plugins/cache/openai-curated/github/d5f583fa...` | 5 | 4 |
+| `~/.homebrew/Homebrew/.claude/settings.json` | 3 | 2 |
+| `~/.codex/plugins/cache/openai-primary-runtime/spreadsheets/26.1030.10813` | 3 | 2 |
+| 其余 8 组各 2 个观测 | 16 | 8 |
+
+每次拒绝挡住一次合并，放行后的资产数正好少 50：169 降到 119，MCP server 从 6 降到 2 `[O]`。数值对得上，机制不是 50 组资产两两并成一个，而是 13 个安装路径各有一个锚点，锚点之外的兄弟节点逐个被拒。插件目录下的多个 skill 共享同一个 `attribute_of`，这是 `install` 键对 skill 过粗的结果。
 
 `0 missing on disk` 表示 15 条插件安装记录对应的目录都还在，没有 stale 记录。
 
@@ -1429,7 +1551,20 @@ policy 内容：
 }
 ```
 
-未传 policy 时 findings 为 0。6 个 MCP server 全是 `declared_only`、`pinned=null`，其中 3 个 `credential_kinds=inherited`，均未通过 `_may_be_judged`：`catalog_id` 为空且 `confidence.label` 为 `low`。
+未传 policy 时 findings 为 0。原因是六条规则各自的条件都没有满足，与 `_may_be_judged` 无关：6 个 MCP server 的 `confidence.label` 都是 `low`，都通过了门槛，把门槛强制改成 `return True` 重跑，结果仍是 0 `[O]`。
+
+逐个条件对照 `[O]`：
+
+| 规则 | 条件 | 6 个 MCP server 的实际值 | 是否触发 |
+|---|---|---|---|
+| `forbidden_asset` | `sanction == "forbidden"` | 全部 `unknown`（无 policy） | 否 |
+| `unpinned_mcp_server` | `pinned is False` | 全部 `null` | 否 |
+| `undeclared_mcp_server` | `"undeclared" in flags` | 全部由配置声明，无该 flag | 否 |
+| `plaintext_transport` | `"plaintext_transport" in risk.factors` | 全部空 | 否 |
+| `unattended_execution` | `risk.unattended is True` 且 kind 不是 `ci_agent` | 全部 `false` | 否 |
+| `third_party_destination` | 有出站目的地且 `policy.tenant_domains` 非空 | `github` 有 `api.githubcopilot.com`，policy 为空 | 否 |
+
+`third_party_destination` 的第二个条件在 `findings.py:100`：`if third_party and policy.tenant_domains`。没有 policy 时列表为空，域名判定不执行。传了 policy 之后 `github` 才被报出来，即本节开头第 2 条 finding。
 
 ### 6.7 汇总
 
@@ -1463,7 +1598,9 @@ policy 内容：
 
 ### 6.8 catalog 外产品
 
-`applications` 探针返回 73 条记录，WorkBuddy AI 在其中，但原版扫描的 169 个资产里没有它。
+`applications` 探针返回 73 条记录，`/Applications/WorkBuddy AI.app` 在其中。它作为 `application` 候选走完 M2，在 M4 没有识别出结论：`identify` 返回 `no conclusive evidence`，开放世界得分 0，没有信号，于是被丢弃，不进 `assets`，也不进 `review_queue` `[O]`。这是 2.5.6 里的第二种去向。
+
+候选发现与资产登记是两件事。这个 app 已经被发现，只是没有通过识别。把它写成「没有被发现」会让读者以为枚举漏了这个目录。
 
 向 `catalog.json` 追加一条后重扫，资产数从 169 变为 170，新增记录：
 
@@ -1509,7 +1646,7 @@ policy 内容：
 | `install_path` | `/Applications/...` | 来自 LaunchServices |
 | `install_method` | `null` | 目录未声明 |
 
-`~/.workbuddy-ai/skills/` 下 8 个 skill 在两次扫描中都被单独记录，因为目录名 `skills` 命中 `DIR_MARKERS`。它们与这个 app 资产无关联，各自持有独立 `asset_id`。资产表中可见 app，不可见其携带的 skill 列表。
+`~/.workbuddy-ai/skills/` 下的 skill 在两次扫描中都被单独记录，因为目录名 `skills` 命中 `DIR_MARKERS`。当前 7 条，与这个 app 资产无关联，各自持有独立 `asset_id`。资产表中可见 app，不可见其携带的 skill 列表。
 
 ### 6.9 diff
 
@@ -1546,21 +1683,73 @@ delta vs the previous snapshot of <host>
 
 `loose` 的 finding 说明 `unpinned_mcp_server` 在 fixture 下能触发：`command` 为 `npx`，`args` 里是 `@acme/loose-mcp` 不带版本号，pinning 判定返回 `False`，与 `node_repl` 的 `null` 不同。
 
-## 七、缺口
+## 七、测试覆盖
 
-### 7.1 代码限制
+`adr_discovery/tests_unit/` 有 42 个测试文件、474 个用例（参数化展开后），按阶段编号命名。`tests/` 是另一套：黑盒保真度测量，用 120 条安装清单比对快照的 TP / FP / FN，不计入这里的用例数。
+
+### 7.1 用例分布
+
+本机执行结果 `[T]`：
+
+| 结果 | 数量 |
+|---|---|
+| 通过 | 473 |
+| 跳过 | 1 |
+| 失败 | 0 |
+| 合计 | 474 |
+
+```bash
+python3 -m pytest adr_discovery/tests_unit -q
+```
+
+`pytest` 是 dev 依赖。沙箱内需要把 `TMPDIR` 指到可写目录，否则 `tmp_path` 夹具建目录会被路径策略拒绝。`test_traversal_budget.py` 单独跑 433 秒，整套其余文件合计不到 60 秒。
+
+### 7.2 模块与用例对应
+
+| 阶段 | 测试文件 | 用例数 |
+|---|---|---|
+| M1 world | `test_m1_world` `test_home_discovery` `test_host_identity` `test_provider_addresses` `test_listening_ports` | 71 |
+| M2 enumerate | `test_m2_enumerator` `test_config_templates` `test_traversal_budget` `test_install_layouts` `test_plugin_registries` `test_candidate_dedupe` | 89 |
+| M3 extract | `test_m3_extractor` `test_m3_surfaces` `test_frontmatter_tolerance` `test_surface_metadata` `test_opencode_servers` `test_cursor_plugins` | 56 |
+| M4 identify | `test_m4_identifier` `test_content_identity` `test_declaration_identity` `test_hook_identity` `test_catalog_provenance` `test_modified_time` | 38 |
+| M5 resolve | `test_m5_resolver` `test_folder_hash` `test_content_changed` | 40 |
+| M6 judge | `test_m6_judge` `test_launch_shapes` `test_launch_risk_kinds` `test_policy_indicators` `test_cli_security` | 92 |
+| M7 report | `test_m7_reporter` `test_roundtrip_and_telemetry` | 16 |
+| 跨阶段 | `test_pipeline` `test_cross_cutting` `test_skill_archives` `test_import_rules` | 46 |
+| 清单与来源 | `test_catalog_risk_factors` `test_ci_agents` `test_mcpb_manifest` `test_plugin_manifests` `test_plugin_provenance` | 26 |
+
+多数用例名带 `u<阶段>_<序号>` 前缀，正文引用时直接用名字，例如 `test_u5_06_two_tools_sharing_a_root_do_not_merge`。
+
+### 7.3 未覆盖的部分
+
+| 缺口 | 依据 |
+|---|---|
+| Windows provider 没有用例 | 42 个测试文件里没有出现 `WindowsProviders`；`test_home_discovery` 的平台参数只有 `linux` 与 `macos` |
+| 用例全部跑在 fixture 世界 | `conftest.py` 自述「fixture 目录与真实机器在 M1 以下可互换」，真实 `/Applications`、真实 LaunchServices 只有本机实测覆盖过一次 |
+| `--resolve` 只测了反面 | `test_provider_addresses.py:99` 断言未传 `--resolve` 时 `resolver` 为 unavailable，依赖树遍历本身没有用例 |
+| 多用户只测到枚举层 | `test_m2_enumerator.py:256` 断言 `/Users/bob` 被发现，没有多 owner 下的 asset_id 与合并用例 |
+| 黑盒保真度测量未接通 | `tests/README.md`：Linux 与 macOS 有 guest driver，但都没有接 golden snapshot 自动恢复；Windows 没有 driver；Linux 上 105 条适用条目里有 64 条有可执行 recipe |
+
+---
+
+## 八、缺口
+
+### 8.1 代码限制
 
 | 限制 | 影响 |
 |---|---|
 | catalog 仅 37 条 | 表外产品依赖开放世界评分，0.40 阈值过滤大部分 |
+| 识别失败即丢弃 | 得分低于 0.40 且无 `network_intent` 的候选不留任何记录，`coverage` 也不记，见 2.5.6 |
+| `install` 键对 skill 过粗 | 同一插件下的 skill 共享 `attribute_of`，全靠 identity guard 挡住，见 2.6.1 |
 | 无资产关联 | skill 与宿主 app 不 join |
 | 无历史 | 单次扫描，趋势需多次 snapshot 自行计算 |
 | YAML 仅支持子集 | 复杂 YAML 配置无法解析 |
 | Windows 包管理未实现 | winget / chocolatey 安装的 agent 仅靠注册表 |
+| Windows 无测试 | provider 只有源码，没有用例 |
 | DNS cache 多数不可用 | 域名反解依赖连接表与已知域名列表 |
 | 定时任务不扫 | `OUT_OF_SCOPE` 声明 |
 
-### 7.2 设计取舍
+### 8.2 设计取舍
 
 | 取舍 | 代价 |
 |---|---|
@@ -1568,44 +1757,80 @@ delta vs the previous snapshot of <host>
 | 约定不作证据 | 大量资产 `confidence=low` |
 | 采集时脱敏 | 丢失部分上下文（如 URL query 参数） |
 | 预算共享 | 后续 probe 可能空手而归 |
+| 合并过头不可见 | 总数正常，少一个资产不会被察觉，靠 identity guard 兜住 |
 
 ---
 
 ## 附录 代码坐标索引
 
+行号对应 commit `6b33dff`，路径相对 `Discovery/adr_discovery/`。
+
 | 主题 | 坐标 |
 |---|---|
-| 18 类 Kind | `contracts/records.py::Kind` |
-| Asset 字段 | `contracts/records.py::Asset` |
-| Risk 字段 | `contracts/records.py::Risk` |
-| Channel / Rung | `contracts/evidence.py` |
-| Snapshot / Coverage | `contracts/snapshot.py` |
-| 目录标记 | `enumerator/markers.py` |
-| 根模板 / 跳过规则 | `enumerator/roots.py` |
-| sweep 预算 | `enumerator/sweep.py` |
-| 包 / 应用 / 内核来源 | `enumerator/sources/registries.py` |
-| 配置文件来源 | `enumerator/sources/appstate.py` |
-| bin 目录来源 | `enumerator/sources/binaries.py` |
-| 模型目录来源 | `enumerator/sources/modelstores.py` |
-| 网络来源 | `enumerator/sources/network.py` |
-| 执行日志来源 | `enumerator/sources/execjournal.py` |
-| M3 抽取入口 | `extractor/__init__.py::extract` |
-| 目录型 surface | `extractor/surfaces.py::SURFACES` |
-| 逐记录隔离 | `extractor/isolate.py` |
-| 三级阶梯 | `identifier/ladder.py::identify` |
-| 开放世界打分 | `identifier/openworld.py` |
-| 合并键 | `resolver/merge.py` |
-| asset_id | `resolver/keys.py::asset_id` |
-| 置信分档 | `resolver/confidence.py` |
-| 六条规则 | `judge/findings.py` |
-| 风险解析 | `judge/risk.py` |
-| 授权状态 | `judge/sanction.py` |
-| M6 入口 | `judge/__init__.py::judge` |
-| Delta | `reporter/delta.py::diff` |
-| Snapshot 序列化 | `reporter/snapshot.py` |
-| Coverage ledger | `coverage/ledger.py::Ledger` |
-| 脱敏规则 | `redact/rules.py` |
-| 预算 | `world/budget.py::Budget` |
-| 平台 provider | `world/platform/{darwin,linux,windows}.py` |
-| composition root | `pipeline.py::discover` |
-| CLI | `cli.py` |
+| 18 类 Kind | `contracts/records.py:16` |
+| Candidate | `contracts/records.py:55` |
+| Declaration | `contracts/records.py:67` |
+| Observation | `contracts/records.py:153` |
+| Risk 字段 | `contracts/records.py:176` |
+| Asset 字段 | `contracts/records.py:232` |
+| Channel | `contracts/evidence.py:14` |
+| Rung | `contracts/evidence.py:30` |
+| CONCLUSIVE_RUNGS | `contracts/evidence.py:43` |
+| Coverage | `contracts/snapshot.py:64` |
+| Snapshot | `contracts/snapshot.py:85` |
+| 目录标记 | `enumerator/markers.py:15` |
+| 文件标记 | `enumerator/markers.py:25` |
+| state root | `enumerator/markers.py:51` |
+| 可反解厂商域名 | `enumerator/markers.py:124` |
+| 本地模型端口 | `enumerator/markers.py:145` |
+| 跳过规则 | `enumerator/roots.py:43` |
+| sweep 入口 | `enumerator/sweep.py:15` |
+| sweep 预算 | `enumerator/sweep.py:65` |
+| 包来源 | `enumerator/sources/registries.py:18` |
+| 应用注册表来源 | `enumerator/sources/registries.py:35` |
+| 进程来源 | `enumerator/sources/registries.py:52` |
+| unattended 判定 | `enumerator/sources/registries.py:95` |
+| 配置来源 | `enumerator/sources/appstate.py:29` |
+| bin 目录 | `enumerator/sources/binaries.py:20` |
+| bin 目录上限 | `enumerator/sources/binaries.py:26` |
+| 模型目录 | `enumerator/sources/modelstores.py:7` |
+| 模型数量上限 | `enumerator/sources/modelstores.py:13` |
+| 网络来源 | `enumerator/sources/network.py:21` |
+| 执行日志来源 | `enumerator/sources/execjournal.py:18` |
+| 目录型 surface | `extractor/surfaces.py:24` |
+| manifest 路径 | `extractor/surfaces.py:95` |
+| 单文件记录上限 | `extractor/__init__.py:35` |
+| 三级阶梯入口 | `identifier/ladder.py:40` |
+| 文件内容 hash | `identifier/ladder.py:28` |
+| 开放世界阈值 | `identifier/openworld.py:25` |
+| 开放世界打分 | `identifier/openworld.py:28` |
+| 合并键 | `resolver/keys.py:42` |
+| 身份取值 | `resolver/keys.py:72` |
+| asset_id | `resolver/keys.py:90` |
+| 安装根归一化 | `resolver/keys.py:32` |
+| 分组与拒绝 | `resolver/merge.py:43` |
+| 组内身份校验 | `resolver/merge.py:31` |
+| 置信分档 | `resolver/confidence.py:13` |
+| 精度门槛 | `judge/findings.py:24` |
+| 六条规则 | `judge/findings.py:32` |
+| 出站域名条件 | `judge/findings.py:100` |
+| 启动类 Kind | `judge/__init__.py:25` |
+| 授权状态 | `judge/sanction.py:234` |
+| 第三方域名判定 | `judge/sanction.py:252` |
+| 瞬时 runner | `judge/risk.py:45` |
+| 凭据可达 | `judge/risk.py:227` |
+| Delta | `reporter/delta.py:51` |
+| Snapshot 序列化 | `reporter/snapshot.py:39` |
+| 统计口径 | `reporter/snapshot.py:177` |
+| Coverage ledger | `coverage/ledger.py:24` |
+| 凭据 flag | `redact/rules.py:20` |
+| 个人路径段 | `redact/rules.py:63` |
+| 脱敏自述 | `redact/rules.py:163` |
+| 预算 | `world/budget.py:17` |
+| darwin provider | `world/platform/darwin.py:19` |
+| linux provider | `world/platform/linux.py:16` |
+| windows provider | `world/platform/windows.py:11` |
+| composition root | `pipeline.py:61` |
+| 文件 hash 赋值 | `pipeline.py:248` |
+| CLI 参数 | `cli.py:37` |
+| CLI 入口 | `cli.py:62` |
