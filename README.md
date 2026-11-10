@@ -34,3 +34,5 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 Discovery 已完成。Observability、Detection 尚未开始。
 
 引用请注明出处。
+
+改动规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。`main` 只读，一律走分支 + PR。
