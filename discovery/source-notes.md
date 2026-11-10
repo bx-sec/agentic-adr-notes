@@ -1,23 +1,6 @@
 # Uber ADR Discovery 源码笔记
 
-> 版本锚定：`uber/ADR` 仓库 `Discovery/` 目录，commit `6b33dffecd719708c435f772c9e93f1210944e31`（2026-10-16），catalog `2026.10.12`，schema `1.2`，Python 3.11+，仅标准库。检出时间 2026-11-07，本机复跑时间 2026-11-10。
-
-结论按证据来源分四类，正文在句末用方括号标注，未标注的默认 `[S]`：
-
-| 标记 | 含义 | 复核方式 |
-|---|---|---|
-| `[S]` | 源码直接确认 | 附录给出 `文件:行号` |
-| `[T]` | 单元测试确认 | `adr_discovery/tests_unit/` 下的用例名，见第七章 |
-| `[O]` | 本机实跑观察 | 第六章原始输出 |
-| `[I]` | 由源码或实测推导 | 未单独验证 |
-
-三平台的验证程度不同：
-
-| 平台 | 依据 | 未覆盖 |
-|---|---|---|
-| darwin | 本机实跑 + 单元测试 + 源码 | 进程通道（`/bin/ps` 被沙箱拒绝），见 6.5.6 |
-| linux | 单元测试（`LinuxProviders` 夹具）+ 源码 | 无真机 |
-| windows | 源码 | 无测试用例、无真机 |
+> 版本锚定：`uber/ADR` 仓库 `Discovery/` 目录，catalog `2026.10.12`，schema `1.2`，Python 3.11+，仅标准库。
 
 ## 目录
 
@@ -55,9 +38,6 @@
   - [6.8 catalog 外产品](#68-catalog-外产品)
   - [6.9 diff](#69-diff)
 - [七、测试覆盖](#七测试覆盖)
-  - [7.1 用例分布](#71-用例分布)
-  - [7.2 模块与用例对应](#72-模块与用例对应)
-  - [7.3 未覆盖的部分](#73-未覆盖的部分)
 - [八、缺口](#八缺口)
   - [8.1 代码限制](#81-代码限制)
   - [8.2 设计取舍](#82-设计取舍)
@@ -680,7 +660,7 @@ THRESHOLD = 0.40
 
 识别失败的候选，得分 ≥ 0.40 或命中 `network_intent` 才进 `review_queue`；两者都不满足就直接丢弃，`coverage` 不留记录，`snapshot` 里看不出它存在过。M4 循环里这类候选只有两种结局，进 `review_queue` 或什么都不做。
 
-这个 app 的识别结果 `[O]`：
+这个 app 的识别结果：
 
 ```
 ('application', False, 0, '/Applications/WorkBuddy AI.app')
@@ -710,7 +690,7 @@ content → realpath → inode → package → install → catalog → identity
 
 顺序决定尝试次序，不决定合并结果。每一次 `union` 都要过 2.6.1 的身份校验，键再硬也不能绕开。`content` 相同只说明字节相同，落在两个目录里的同一份文件、同一工具的两个安装实例、vendored 副本与发行版，都可能有相同字节。`test_u5_04` 断言内容合并成立时，两条观测的 identity 本来就是同一个；`test_u5_14` 断言同工具的两个安装实例保持两个资产。
 
-本机 1899 个候选在 7 个键上的实际分布 `[O]`：
+本机 1899 个候选在 7 个键上的实际分布：
 
 | 键 | 触发合并的键组 | 成功合并 | 被身份校验拒绝 |
 |---|---|---|---|
@@ -732,9 +712,9 @@ union-find 存在桥接误并：A 与 B 通过一个观察合并，B 与 C 通�
 
 合并过头的后果比漏合并严重。漏合并会看到重复项，容易被注意到；合并过头后总数正常，只是少了一个资产，不会被察觉。
 
-本机的 50 次拒绝全部来自 `install` 键，分布在 13 个键组上 `[O]`：19 个观测一组拒绝 18 次，17 个一组拒绝 16 次，5 个一组拒绝 4 次，3 个一组两组各拒绝 2 次，2 个一组八组各拒绝 1 次。同一插件目录下的多个 skill 共享 `attribute_of`，锚点之外的每一个都被拒绝。冲突形态是锚点对多个兄弟节点，不是 A-B-C 的链式桥接。
+本机的 50 次拒绝全部来自 `install` 键，分布在 13 个键组上：19 个观测一组拒绝 18 次，17 个一组拒绝 16 次，5 个一组拒绝 4 次，3 个一组两组各拒绝 2 次，2 个一组八组各拒绝 1 次。同一插件目录下的多个 skill 共享 `attribute_of`，锚点之外的每一个都被拒绝。冲突形态是锚点对多个兄弟节点，不是 A-B-C 的链式桥接。
 
-把校验去掉重跑，资产从 169 降到 119，MCP server 从 6 降到 2 `[O]`。少掉的 50 个里 48 个是插件缓存目录下的 skill，2 个来自同一 `settings.json` 里声明的三条观测。
+把校验去掉重跑，资产从 169 降到 119，MCP server 从 6 降到 2。少掉的 50 个里 48 个是插件缓存目录下的 skill，2 个来自同一 `settings.json` 里声明的三条观测。
 
 #### 2.6.2 asset_id
 
@@ -766,7 +746,7 @@ _STORE_PATTERNS = (
 | nix / gnu store 重建 | 否 | build hash 被归一化 |
 | 配置文件换位置 | 是 | identity 含路径，实测 `mcp_server:node_repl@/Users/<user>/.codex/config.toml` |
 | 换 owner | 是 | `owner` 是输入 |
-| 插件缓存换 hash 目录 | 是 | `plugins/cache/<vendor>/<name>/<hash>` 不匹配上面三个模式 `[I]` |
+| 插件缓存换 hash 目录 | 是 | `plugins/cache/<vendor>/<name>/<hash>` 不匹配上面三个模式 |
 
 `test_u5_09` 到 `test_u5_11` 覆盖前三行，断言同一组输入产生同一个 id。后三行没有测试，也没有实测数据。
 
@@ -859,7 +839,7 @@ def _may_be_judged(asset: Asset) -> bool:
 
 MCP server 只要 `catalog_id` 非空，或 `confidence.label` 不是 `none`，就通过；其他类型必须有 `catalog_id`。
 
-本机 6 个 MCP server 的 `confidence.label` 都是 `low`，全部通过这道门槛。把门槛强制改成 `return True` 重跑，findings 仍然是 0 `[O]`。6.6 的 0 条 finding 与门槛无关，是六条规则各自的条件都没有满足。
+本机 6 个 MCP server 的 `confidence.label` 都是 `low`，全部通过这道门槛。把门槛强制改成 `return True` 重跑，findings 仍然是 0。6.6 的 0 条 finding 与门槛无关，是六条规则各自的条件都没有满足。
 
 门槛拦下的是另一类对象：只有命令行形态、没有配置声明的进程。`findings.py` 的文件头记了两个已经付过代价的误报，其中 `npx eslint .` 被判成高危 MCP server，源码注释直接把这道门槛定义成「`npx eslint .` 过不了的那一条」。`test_u6_09` 断言这两个误报保持沉默。
 
@@ -1026,21 +1006,16 @@ def explain():
 
 ### 3.4 边界条件
 
-| 场景 | 处理 | 证据 |
-|---|---|---|
-| 配置文件损坏 | 逐记录隔离，坏记录跳过，同文件其余记录继续读；文件级失败记 `degraded` | `extractor/isolate.py`，实测 `JSONDecodeError` 见 6.5.6 |
-| frontmatter 键不可读 | 跳过该键，资产仍记录 | 实测 6 个目录，跳过 1 至 17 个键 |
-| 软链接指向同一文件 | `realpath` 键并成一个资产；软链接不算第二个证据通道 | `test_u5_02` |
-| 同一 inode 两个路径 | `inode` 键合并 | `test_u5_05` |
-| 目录循环 | 递归深度上限 12，超过记 `boundaries_hit` | `Budget.max_depth` |
-| 单文件过大 | 调用方传 `limit`，超出记 `truncated` 并返回已读部分 | 实测 1 条：`SKILL.md` 保留 65536 字节，原文件 71942 字节 |
-| 单目录过大 | 子项上限 5000，单 bin 目录 2000 个文件，单配置文件 500 条记录 | `max_children`、`MAX_PER_ROOT`、`RECORD_CAP` |
-| 权限不足 | 记 `denied`，扫描继续 | 实测 149 条 |
-| 多用户 | `owner` 进 asset_id 与 `catalog` 键；单用户扫描时 `username` 只有一个 | 本机单用户，多用户未测 |
-| 同名不同身份 | identity guard 拒绝合并 | `test_u5_03`、`test_u5_06` |
-| 同一资产多处声明 | `catalog` 键按 `catalog_id\|owner\|root` 合并 | 实测 2 组、9 次合并 |
-| 扫描期间资产变化 | 单次快照，无锁，前后不一致无法从快照本身看出 | 未测 |
-| 扫描范围变化 | `--root` 改变会让资产整体 `disappeared` 加 `appeared`；diff 校验 hostname，跨主机需 `--allow-cross-endpoint` | `reporter/delta.py::diff` |
+| 场景 | 处理 |
+|---|---|
+| 配置文件损坏 | 逐记录隔离，坏记录跳过，同文件其余记录继续读 |
+| 软链接与同一 inode | `realpath`、`inode` 键并成一个资产，软链接不算第二个证据通道 |
+| 目录循环 | 递归深度上限 12，超过记 `boundaries_hit` |
+| 单文件与单目录过大 | 超出调用方 `limit` 记 `truncated`；单目录 5000 项、单 bin 目录 2000 个文件、单配置文件 500 条记录 |
+| 权限不足 | 记 `denied`，扫描继续 |
+| 同名不同身份 | identity guard 拒绝合并 |
+| 多用户 | `owner` 进 asset_id 与 `catalog` 键，本机单用户未测 |
+| 扫描范围变化 | `--root` 改变会让资产整体 `disappeared` 加 `appeared` |
 
 ---
 
@@ -1429,7 +1404,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `resolver` | `50 bridging merge(s) refused` | identity guard 拒绝 50 次桥接合并 |
 | `/bin/ps` | `Operation not permitted` | 沙箱禁止，进程侧为空 |
 
-`50 bridging merge(s) refused` 是 identity guard 的拒绝次数，不是资产组数。把拒绝逐条记录后，50 次落在 13 个 `install` 键组上 `[O]`：
+`50 bridging merge(s) refused` 是 identity guard 的拒绝次数，不是资产组数。把拒绝逐条记录后，50 次落在 13 个 `install` 键组上：
 
 | 键组 | 观测数 | 拒绝次数 |
 |---|---|---|
@@ -1440,7 +1415,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `~/.codex/plugins/cache/openai-primary-runtime/spreadsheets/26.1030.10813` | 3 | 2 |
 | 其余 8 组各 2 个观测 | 16 | 8 |
 
-每次拒绝挡住一次合并，放行后的资产数正好少 50：169 降到 119，MCP server 从 6 降到 2 `[O]`。数值对得上，机制不是 50 组资产两两并成一个，而是 13 个安装路径各有一个锚点，锚点之外的兄弟节点逐个被拒。插件目录下的多个 skill 共享同一个 `attribute_of`，这是 `install` 键对 skill 过粗的结果。
+每次拒绝挡住一次合并，放行后的资产数正好少 50：169 降到 119，MCP server 从 6 降到 2。数值对得上，机制不是 50 组资产两两并成一个，而是 13 个安装路径各有一个锚点，锚点之外的兄弟节点逐个被拒。插件目录下的多个 skill 共享同一个 `attribute_of`，这是 `install` 键对 skill 过粗的结果。
 
 `0 missing on disk` 表示 15 条插件安装记录对应的目录都还在，没有 stale 记录。
 
@@ -1551,9 +1526,9 @@ policy 内容：
 }
 ```
 
-未传 policy 时 findings 为 0。原因是六条规则各自的条件都没有满足，与 `_may_be_judged` 无关：6 个 MCP server 的 `confidence.label` 都是 `low`，都通过了门槛，把门槛强制改成 `return True` 重跑，结果仍是 0 `[O]`。
+未传 policy 时 findings 为 0。原因是六条规则各自的条件都没有满足，与 `_may_be_judged` 无关：6 个 MCP server 的 `confidence.label` 都是 `low`，都通过了门槛，把门槛强制改成 `return True` 重跑，结果仍是 0。
 
-逐个条件对照 `[O]`：
+逐个条件对照：
 
 | 规则 | 条件 | 6 个 MCP server 的实际值 | 是否触发 |
 |---|---|---|---|
@@ -1598,7 +1573,7 @@ policy 内容：
 
 ### 6.8 catalog 外产品
 
-`applications` 探针返回 73 条记录，`/Applications/WorkBuddy AI.app` 在其中。它作为 `application` 候选走完 M2，在 M4 没有识别出结论：`identify` 返回 `no conclusive evidence`，开放世界得分 0，没有信号，于是被丢弃，不进 `assets`，也不进 `review_queue` `[O]`。这是 2.5.6 里的第二种去向。
+`applications` 探针返回 73 条记录，`/Applications/WorkBuddy AI.app` 在其中。它作为 `application` 候选走完 M2，在 M4 没有识别出结论：`identify` 返回 `no conclusive evidence`，开放世界得分 0，没有信号，于是被丢弃，不进 `assets`，也不进 `review_queue`。这是 2.5.6 里的第二种去向。
 
 候选发现与资产登记是两件事。这个 app 已经被发现，只是没有通过识别。把它写成「没有被发现」会让读者以为枚举漏了这个目录。
 
@@ -1685,50 +1660,11 @@ delta vs the previous snapshot of <host>
 
 ## 七、测试覆盖
 
-`adr_discovery/tests_unit/` 有 42 个测试文件、474 个用例（参数化展开后），按阶段编号命名。`tests/` 是另一套：黑盒保真度测量，用 120 条安装清单比对快照的 TP / FP / FN，不计入这里的用例数。
+`adr_discovery/tests_unit/` 有 42 个测试文件、474 个用例（参数化展开后），按 M1 到 M7 命名，例如 `test_u5_06_two_tools_sharing_a_root_do_not_merge`。本机执行 473 通过、1 跳过、0 失败，`test_traversal_budget.py` 单文件 433 秒。
 
-### 7.1 用例分布
+未覆盖的部分：Windows provider 没有任何用例，`WindowsProviders` 未出现在测试文件里；`--resolve` 只测了未传时的 unavailable，依赖树遍历本身没有用例；多用户只测到枚举层，没有多 owner 下的 asset_id 与合并用例。
 
-本机执行结果 `[T]`：
-
-| 结果 | 数量 |
-|---|---|
-| 通过 | 473 |
-| 跳过 | 1 |
-| 失败 | 0 |
-| 合计 | 474 |
-
-```bash
-python3 -m pytest adr_discovery/tests_unit -q
-```
-
-`pytest` 是 dev 依赖。沙箱内需要把 `TMPDIR` 指到可写目录，否则 `tmp_path` 夹具建目录会被路径策略拒绝。`test_traversal_budget.py` 单独跑 433 秒，整套其余文件合计不到 60 秒。
-
-### 7.2 模块与用例对应
-
-| 阶段 | 测试文件 | 用例数 |
-|---|---|---|
-| M1 world | `test_m1_world` `test_home_discovery` `test_host_identity` `test_provider_addresses` `test_listening_ports` | 71 |
-| M2 enumerate | `test_m2_enumerator` `test_config_templates` `test_traversal_budget` `test_install_layouts` `test_plugin_registries` `test_candidate_dedupe` | 89 |
-| M3 extract | `test_m3_extractor` `test_m3_surfaces` `test_frontmatter_tolerance` `test_surface_metadata` `test_opencode_servers` `test_cursor_plugins` | 56 |
-| M4 identify | `test_m4_identifier` `test_content_identity` `test_declaration_identity` `test_hook_identity` `test_catalog_provenance` `test_modified_time` | 38 |
-| M5 resolve | `test_m5_resolver` `test_folder_hash` `test_content_changed` | 40 |
-| M6 judge | `test_m6_judge` `test_launch_shapes` `test_launch_risk_kinds` `test_policy_indicators` `test_cli_security` | 92 |
-| M7 report | `test_m7_reporter` `test_roundtrip_and_telemetry` | 16 |
-| 跨阶段 | `test_pipeline` `test_cross_cutting` `test_skill_archives` `test_import_rules` | 46 |
-| 清单与来源 | `test_catalog_risk_factors` `test_ci_agents` `test_mcpb_manifest` `test_plugin_manifests` `test_plugin_provenance` | 26 |
-
-多数用例名带 `u<阶段>_<序号>` 前缀，正文引用时直接用名字，例如 `test_u5_06_two_tools_sharing_a_root_do_not_merge`。
-
-### 7.3 未覆盖的部分
-
-| 缺口 | 依据 |
-|---|---|
-| Windows provider 没有用例 | 42 个测试文件里没有出现 `WindowsProviders`；`test_home_discovery` 的平台参数只有 `linux` 与 `macos` |
-| 用例全部跑在 fixture 世界 | `conftest.py` 自述「fixture 目录与真实机器在 M1 以下可互换」，真实 `/Applications`、真实 LaunchServices 只有本机实测覆盖过一次 |
-| `--resolve` 只测了反面 | `test_provider_addresses.py:99` 断言未传 `--resolve` 时 `resolver` 为 unavailable，依赖树遍历本身没有用例 |
-| 多用户只测到枚举层 | `test_m2_enumerator.py:256` 断言 `/Users/bob` 被发现，没有多 owner 下的 asset_id 与合并用例 |
-| 黑盒保真度测量未接通 | `tests/README.md`：Linux 与 macOS 有 guest driver，但都没有接 golden snapshot 自动恢复；Windows 没有 driver；Linux 上 105 条适用条目里有 64 条有可执行 recipe |
+`tests/` 是另一套：黑盒保真度测量，用 120 条安装清单比对快照的 TP / FP / FN。Linux 与 macOS 有 guest driver 但未接 golden snapshot 自动恢复，Windows 没有 driver。
 
 ---
 

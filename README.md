@@ -12,16 +12,14 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 | 项 | 值 |
 |---|---|
-| 源码 | `uber/ADR` 的 `Discovery/` 目录，commit `6b33dffecd719708c435f772c9e93f1210944e31`（2026-10-16） |
+| 源码 | `uber/ADR` 的 `Discovery/` 目录 |
 | catalog | `2026.10.12` |
 | schema | `1.2` |
 | Python | 3.11+，仅标准库 |
 
 ## 说明
 
-代码坐标在正文写成 `文件::符号`，在附录写成 `文件:行号`，行号对应上面那个 commit。例如 `judge/findings.py::findings_for` 与 `judge/findings.py:32`。
-
-结论按证据来源标注：`[S]` 源码、`[T]` 单元测试、`[O]` 本机实跑、`[I]` 推导。未标注的默认源码。
+代码坐标在正文写成 `文件::符号`，在附录写成 `文件:行号`。例如 `judge/findings.py::findings_for` 与 `judge/findings.py:32`。
 
 实测数据来自 macOS 单机，路径中的用户名替换为 `<user>`，主机名替换为 `<host>`。所有输出片段取自同一次运行，未拼接。
 
