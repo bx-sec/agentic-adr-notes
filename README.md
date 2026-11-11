@@ -11,15 +11,16 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 | 组件 | 笔记 | 覆盖范围 |
 |---|---|---|
 | Discovery | [discovery/source-notes.md](discovery/source-notes.md) | 18 类 Kind、37 条 catalog、M1–M7 七个阶段、判定层、Coverage、脱敏、三平台实现、实测、测试覆盖 |
+| Sensor | [sensor/source-notes.md](sensor/source-notes.md) | 11 个代理平台、AgentEvent 统一 schema、BaseParser 架构、AgentObserver 编排、OTLP 导出、诊断健康、正反例测试方法集 |
 
 ## 版本锚定
 
 | 项 | 值 |
 |---|---|
-| 源码 | `uber/ADR` 的 `Discovery/` 目录 |
+| 源码 | `uber/ADR` 的 `Discovery/` 和 `Sensor/` 目录 |
 | catalog | `2026.10.12` |
-| schema | `1.2` |
-| Python | 3.11+，仅标准库 |
+| schema | `1.2`（Discovery）；AgentEvent schema（Sensor） |
+| Python | 3.11+（Discovery）；3.9–3.13（Sensor） |
 
 ## 说明
 
@@ -31,7 +32,7 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 ## 范围
 
-Discovery 已完成。Observability、Detection 尚未开始。
+Discovery 和 Sensor 已完成。Detection 尚未开始。
 
 引用请注明出处。
 
