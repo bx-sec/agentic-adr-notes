@@ -12,15 +12,18 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 |---|---|---|
 | Discovery | [discovery/source-notes.md](discovery/source-notes.md) | 18 类 Kind、37 条 catalog、M1–M7 七个阶段、判定层、Coverage、脱敏、三平台实现、实测、测试覆盖 |
 | Sensor | [sensor/source-notes.md](sensor/source-notes.md) | 11 个代理平台、AgentEvent 统一 schema、BaseParser 架构、AgentObserver 编排、OTLP 导出、诊断健康、正反例测试方法集 |
+| ADR-Bench | [bench/source-notes.md](bench/source-notes.md) | 304 任务、134 服务器、17 类威胁、执行器与打包格式、真值与指标、AgentDojo 集成、正反例测试方法集 |
 
 ## 版本锚定
 
 | 项 | 值 |
 |---|---|
-| 源码 | `uber/ADR` 的 `Discovery/` 和 `Sensor/` 目录 |
+| 源码 | `uber/ADR` 的 `Discovery/`、`Sensor/` 和 `Detection/` 目录 |
+| commit | `6b33dff`（2026-10-16），Bench 与 Detection 共用 |
 | catalog | `2026.10.12` |
 | schema | `1.2`（Discovery）；AgentEvent schema（Sensor） |
-| Python | 3.11+（Discovery）；3.9–3.13（Sensor） |
+| tasks | 304 条（261 benign / 43 malicious），`Detection/tasks.json` |
+| Python | 3.11+（Discovery）；3.9–3.13（Sensor）；3.10–3.12（Bench） |
 
 ## 说明
 
@@ -32,7 +35,9 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 ## 范围
 
-Discovery 和 Sensor 已完成。Detection 尚未开始。
+Discovery、Sensor、ADR-Bench 已完成。Detection 的检测器部分尚未开始。
+
+Bench 的实测数据来自 macOS 单机，依赖仓库自带的打包产物（`adr_bench_20251017_151604.jsonl`），未执行需要 API key 的端到端运行；涉及执行层的结论以代码路径和单元测试为依据，已在 `bench/source-notes.md` 附录 C 标注。
 
 引用请注明出处。
 
