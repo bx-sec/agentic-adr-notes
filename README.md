@@ -6,6 +6,10 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 概览图。阶段命名与置信分档以 [discovery/source-notes.md](discovery/source-notes.md) 为准。
 
+![Sensor 组件概览](sensor/assets/cheat-sheet.png)
+
+Sensor 概览图。图中流程与数字仅作速查，具体口径以 [sensor/source-notes.md](sensor/source-notes.md) 正文为准。
+
 ## 内容
 
 | 组件 | 笔记 | 覆盖范围 |
