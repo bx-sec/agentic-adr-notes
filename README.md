@@ -18,6 +18,7 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 | 项 | 值 |
 |---|---|
 | 源码 | `uber/ADR` 的 `Discovery/` 和 `Sensor/` 目录 |
+| Sensor 快照 | `6b33dff`（2026-10-16） |
 | catalog | `2026.10.12` |
 | schema | `1.2`（Discovery）；AgentEvent schema（Sensor） |
 | Python | 3.11+（Discovery）；3.9–3.13（Sensor） |

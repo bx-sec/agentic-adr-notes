@@ -1,6 +1,6 @@
 # Uber ADR Sensor 源码笔记
 
-> 版本锚定：`uber/ADR` 仓库 `Sensor/` 目录，初始公开 release commit `db4fb0e`（2026-07-29），Gemini CLI 支持 commit `93ed35c`（2026-09-16），Antigravity 支持截至 2026-10-16。Python 3.9–3.13，依赖 `tabulate` + `zstandard`（可选 `opentelemetry` extra）。Apache 2.0。
+> 版本锚定：`uber/ADR` 仓库 `Sensor/` 目录，源码快照 `6b33dff`（2026-10-16）。初始公开 release commit `db4fb0e`（2026-07-29），Gemini CLI 支持 commit `93ed35c`（2026-09-16），Antigravity 支持 commit `7e4606b`。Python 3.9–3.13（`pyproject.toml` 声明；CI 仅验证 3.12），运行时依赖 `tabulate` + `zstandard`（可选 `otel` extra）。Apache 2.0。
 
 ## 目录
 
@@ -65,7 +65,7 @@ ADR 论文（arXiv:2605.17380，MLSys 2026）指出企业 AI 代理安全面临�
 - 调用了哪些 MCP 工具及其参数
 - 工具调用的因果关系（prompt → reasoning → tool call → outcome）
 
-**关键示例**（来自论文）：用户要求"总结 Jira ticket"，但代理读取了 `~/.ssh/id_rsa` 并发起 HTTP 请求。EDR 看到文件读取和网络连接，但无法判断这些行为是否偏离用户意图。Sensor 通过捕获完整的代理会话语义链来闭合这个鸿沟。
+**关键示例**（来自论文）：用户要求"总结 Jira ticket"，但代理读取了 `~/.ssh/id_rsa` 并发起 HTTP 请求。EDR 看到文件读取和网络连接，但无法判断这些行为是否偏离用户意图。Sensor 通过捕获代理会话语义链来闭合这个鸿沟（受来源日志记录完整性限制）。
 
 ### 1.2 在 ADR 系统中的位置
 
@@ -87,8 +87,8 @@ Discovery 回答"端点上有哪些 AI 工具"，Sensor 回答"这些工具在�
 
 | 维度 | Discovery | Sensor |
 |---|---|---|
-| 产出 | Asset 快照（静态清单） | AgentEvent 流（动态会话） |
-| 触发 | 单次扫描或定期扫描 | 每小时调度（Uber 生产环境） |
+| 产出 | Asset 快照（静态清单） | AgentEvent 集合（每 session 一条记录） |
+| 触发 | 单次扫描或定期扫描 | 单次运行；论文描述 Uber 生产环境每小时外部调度 |
 | 数据来源 | 文件系统、包管理器、注册表、进程表 | AI 代理的本地日志/数据库 |
 | 时间维度 | 快照时刻 | 回溯窗口（默认 14 天） |
 | 下游消费者 | 安全审查、资产登记 | 威胁检测、安全监控 |
@@ -105,7 +105,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 |---|---|
 | 多源日志采集 | 从 11 个 AI 代理平台的本地存储中解析会话数据 |
 | 统一标准化 | 将不同格式（JSONL、SQLite、JSON）转换为统一的 AgentEvent schema |
-| 会话重建 | 关联分散的日志条目，重建 prompt → reasoning → tool call → outcome 的完整因果链 |
+| 会话重建 | 关联分散的日志条目，基于各代理已持久化的记录尽可能重建 prompt → reasoning → tool call → outcome 的行为链（受来源日志的记录完整性、截断和缺失限制） |
 | 工具调用记录 | 捕获 MCP 工具调用的名称、类型、参数、结果和状态 |
 | 环境上下文 | 捕获 session 级配置（MCP 服务器、权限模式、模型版本、插件、技能） |
 | Token 用量 | 规范化每轮和累计 token 计数（部分代理支持） |
@@ -126,8 +126,8 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 | **不捕获 VS Code Copilot Chat** | Copilot CLI 解析器仅覆盖 `session-state/`，不读取 VS Code 扩展存储 |
 | **不捕获未保存会话** | 只解析已持久化的日志，内存中的活动不在范围内 |
 | **不脱敏 OTLP 导出** | OTLP 导出不应用脱敏或字段投影，prompts、凭据、路径都可能被传输 |
-| **不做生产级依赖安全** | 研究工件，部分依赖携带已知 CVE，需在隔离环境运行 |
-| **无实时流** | 每小时调度运行，非实时流式处理 |
+| **仓库研究工件风险** | ADR 仓库整体为研究工件，`OPEN_SOURCE_REVIEW.md` 列出的已知 CVE 风险对应 `Detection/`：AgentDojo 的 pinned 依赖，以及 LlamaFirewall 基线依赖树（torch/transformers 及其拉取的 CUDA 运行时包），不是 Sensor 运行时依赖。Sensor 运行时依赖仅 `tabulate` 和 `zstandard`，OTLP 可选依赖为 `opentelemetry-*`（见 `Sensor/pyproject.toml`）。部署前需对 Sensor 依赖集合单独审计 |
+| **无实时流** | CLI 是单次运行工具，无内置调度器；论文所述"每小时调度"是 Uber 生产环境的部署方式（外部 cron 调度），非 Sensor CLI 自身功能 |
 
 ### 2.3 11 个支持的 AI 代理平台
 
@@ -145,11 +145,11 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 | Gemini CLI | `gemini` | JSONL journals + legacy JSON | macOS, Linux, Windows | 14 天 |
 | Google Antigravity | `antigravity` | JSONL transcript | macOS, Linux, Windows | 14 天 |
 
-**平台自动跳过**：不支持当前操作系统的来源会被自动跳过。例如 Linux 上 `--source all` 不会尝试 `claude_desktop`（仅 macOS/Windows）。`PLATFORM_RESTRICTED_SOURCES` 列表控制此行为。
+**平台自动跳过**：不支持当前操作系统的来源会被自动跳过。例如 Linux 上 `--source all` 不会尝试 `claude_desktop`（仅 macOS/Windows）。`PLATFORM_RESTRICTED_SOURCES` 映射控制此行为。
 
 ### 2.4 四维遥测模型
 
-论文定义了 Sensor 采集的四个数据维度，构成完整的因果链：
+论文定义了 Sensor 采集的四个数据维度，构成支持行为分析的数据链：
 
 | 维度 | 采集内容 | 揭示信息 | AgentEvent 对应字段 |
 |---|---|---|---|
@@ -157,6 +157,8 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 | 代理推理 | 中间思考过程和决策步骤 | **解释**（代理如何理解并规划） | `chat_history[].content` (role=assistant) + `tools` |
 | MCP 工具调用 | 工具调用序列、参数、结果 | **行为**（代理实际做了什么） | `chat_history[].tools[]` |
 | 环境上下文 | MCP 配置、权限模式、模型 | **能力**（代理可用的功能范围） | `session_context` |
+
+> **重要边界**：Sensor 采集的是各代理已持久化到本地的日志或数据库。不同来源对 thinking、工具进度、工具结果、历史分支和内容截断的记录并不相同。因此，`chat_history[].content`（role=assistant）不能一概等同于完整推理过程，日志中的 tool result 也不能单独证明操作已对操作系统产生了预期效果。Sensor 提供的是支持意图/行为分析的语义遥测数据，判断行为是否偏离用户意图、是否构成威胁，是 Detector 组件的职责。
 
 **因果链示例**：
 
@@ -174,7 +176,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 代理响应: "这个 ticket 是关于..."
 ```
 
-如果因果链断裂——用户要求"总结 Jira ticket"但代理调用了 `read_file("~/.ssh/id_rsa")`——Sensor 遥测会暴露这种偏离。
+如果因果链断裂——用户要求"总结 Jira ticket"但代理调用了 `read_file("~/.ssh/id_rsa")`——Sensor 采集的遥测数据会暴露这种偏离，供 Detector 进一步判断是否构成威胁。
 
 ---
 
@@ -231,7 +233,9 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 
 #### 3.2.1 核心结构
 
-每个解析的 session 生成一个 `AgentEvent`。以下为完整字段示例：
+每个解析的 session 生成一个 `AgentEvent`。AgentEvent 是 **Session 级记录**，不是逐条行为事件流——一个 AgentEvent 包含整个会话的 `chat_history`（消息数组 + 工具调用），OTLP 导出也将每个 AgentEvent 作为一条 `adr.agent.session` LogRecord 发送。一次性采集生成当前日志的全量快照；`--save-sessions` 的增量更新是按 session 粒度的快照刷新，不是实时事件流。
+
+以下为完整字段示例：
 
 ```json
 {
@@ -297,7 +301,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `uuid` | str | SHA-256 哈希，唯一标识 |
+| `uuid` | str | SHA-256 哈希，标识用途。由 hostname、username、timestamp、source、session_id、消息数量、工具数量及每条消息前 100 字符摘要拼接后求哈希，**不是完整 payload 的内容指纹**。README 说明：工具结果变化时 session UUID 不一定改变 |
 | `timestamp` | str | ISO 8601 时间戳，会话起始时间 |
 | `source` | str | 来源代理标识符（如 `claude`、`cursor`） |
 | `session_id` | str | 会话唯一标识，格式 `<source>_<native_id>` |
@@ -680,7 +684,7 @@ OTLP 导出默认禁用，仅在 `--otel-config` 指向 JSON 配置文件时初�
 |---|---|
 | `--source <key>` | 指定来源代理（默认 all） |
 | `--save-sessions` | 保存单独的 session 文件（增量） |
-| `--output-format jsonl` | 导出为 JSONL 格式 |
+| `--output-format <fmt>` | 输出格式：`json`（默认）或 `jsonl` |
 | `--all-history` | 包含所有历史（不仅最近 14 天） |
 | `--output-dir <path>` | 自定义输出目录（默认 `./output`） |
 | `--otel-config <path>` | 导出到 OTLP/HTTP logs endpoint |
@@ -930,7 +934,7 @@ for event in events:
 
 1. **合成记录驱动**：所有测试使用合成 transcripts/记录，不启动实际 AI 代理
 2. **契约验证**：多个解析器对照上游源码验证（record types、journal writer、storage paths）
-3. **跨平台覆盖**：测试在 macOS、Linux、Windows 三个 host 上运行
+3. **跨平台覆盖**：Gemini CLI 解析器的 CI 工作流在 macOS、Linux、Windows 三平台运行（详见 5.5.3）
 4. **无需账户**：测试不需要任何 AI 代理的账户或 API key
 5. **可复现**：所有测试可在隔离环境中独立复现
 
@@ -1167,8 +1171,9 @@ echo '{"valid":"json"}' > ~/.claude/projects/test-corrupt/session1.jsonl
 echo 'not valid json' >> ~/.claude/projects/test-corrupt/session1.jsonl
 echo '{"another":"valid"}' >> ~/.claude/projects/test-corrupt/session1.jsonl
 
-# 运行 sensor
-adr-sensor --source claude --output-dir ./test-corrupt --fail-on-error 2>&1 || true
+# 运行 sensor（不使用 || true，以便正确捕获退出码）
+adr-sensor --source claude --output-dir ./test-corrupt --output-format jsonl --fail-on-error 2>&1
+echo "Exit code: $?"
 
 # 验证：损坏的行被跳过，其余行仍被解析
 python3 -c "
@@ -1264,28 +1269,40 @@ chmod 644 /tmp/no-permission/projects/test.jsonl
 **步骤**：
 
 ```bash
-# 创建大日志文件（模拟）
+# ClaudeParser 的 base_path 固定为 ~/.claude/projects/，fixture 必须放在该路径下
+mkdir -p ~/.claude/projects/large-test/
 python3 -c "
 import json
-with open('/tmp/large-claude/projects/big-session.jsonl', 'w') as f:
+with open('$HOME/.claude/projects/large-test/big-session.jsonl', 'w') as f:
     for i in range(100000):
-        msg = {'role':'user' if i%2==0 else 'assistant', 'content':f'Message {i}'*100}
-        f.write(json.dumps(msg) + '\n')
-" 2>/dev/null || mkdir -p /tmp/large-claude/projects/ && python3 -c "
-import json
-with open('/tmp/large-claude/projects/big-session.jsonl', 'w') as f:
-    for i in range(100000):
-        msg = {'role':'user' if i%2==0 else 'assistant', 'content':f'Message {i}'*100}
-        f.write(json.dumps(msg) + '\n')
+        record = {
+            'type': 'user' if i % 2 == 0 else 'assistant',
+            'sessionId': 'large-test',
+            'timestamp': '2026-01-01T00:00:00+00:00',
+            'cwd': '/tmp/large-test',
+            'message': {
+                'role': 'user' if i % 2 == 0 else 'assistant',
+                'content': f'Message {i}' * 100,
+                'model': 'claude-sonnet-4',
+            },
+        }
+        f.write(json.dumps(record) + '\n')
+print('Created large fixture at ~/.claude/projects/large-test/big-session.jsonl')
 "
 
-# 测量解析时间
-time adr-sensor --source claude --output-dir ./test-large 2>&1 || true
+# 确认文件创建
+ls -lh ~/.claude/projects/large-test/big-session.jsonl
+
+# 测量解析时间（注意：不使用 || true，让 sensor 的退出码正确传递）
+time adr-sensor --source claude --output-dir ./test-large --output-format jsonl 2>&1
+echo "Exit code: $?"
 ```
+
+> **路径说明**：`ClaudeParser.__init__` 只接受 `max_age_days`，`base_path` 固定为 `~/.claude/projects/`，既不接受 `base_path` 参数，也不支持环境变量覆盖（与 `GeminiParser` 的 `GEMINI_CLI_HOME` 不同）。因此隔离测试只能在该目录下建子目录；上述步骤会写入真实 Claude Code 日志目录，测试后应删除 `~/.claude/projects/large-test/`。
 
 **预期结果**：
 - 大文件不导致内存溢出或超时
-- Claude Code 解析器对工具参数和结果在 1,000 字符处截断
+- 100,000 条记录被聚合为 1 个 session 级 AgentEvent
 - 处理完成或 `partial` 状态
 
 #### N-07: OTLP 导出无可用 endpoint
@@ -1348,19 +1365,19 @@ cat /tmp/output/diagnostics.jsonl 2>/dev/null
 ```bash
 # 创建旧日志（超过 14 天）
 mkdir -p ~/.claude/projects/old-session/
-echo '{"role":"user","content":"old message"}' > ~/.claude/projects/old-session/old.jsonl
+echo '{"type":"user","sessionId":"old-session","timestamp":"2026-01-01T00:00:00+00:00","message":{"role":"user","content":"old message"}}' > ~/.claude/projects/old-session/old.jsonl
 
 # 设置文件修改时间为 20 天前
 touch -d "20 days ago" ~/.claude/projects/old-session/old.jsonl 2>/dev/null || \
   touch -t $(date -v-20d +%Y%m%d%H%M) ~/.claude/projects/old-session/old.jsonl
 
-# 运行默认（14 天）
-adr-sensor --source claude --output-dir ./test-14days
+# 运行默认（14 天），显式指定 jsonl 格式
+adr-sensor --source claude --output-dir ./test-14days --output-format jsonl
 
 # 运行 --all-history
-adr-sensor --source claude --all-history --output-dir ./test-all-history
+adr-sensor --source claude --all-history --output-dir ./test-all-history --output-format jsonl
 
-# 对比
+# 对比（CLI 默认输出格式为 json，不指定 --output-format jsonl 时不会生成 .jsonl 文件）
 echo "14-day events: $(wc -l < ./test-14days/*.jsonl 2>/dev/null || echo 0)"
 echo "all-history events: $(wc -l < ./test-all-history/*.jsonl 2>/dev/null || echo 0)"
 ```
@@ -1386,11 +1403,14 @@ sources_seen = set()
 for line in sys.stdin:
     diag = json.loads(line)
     sources_seen.add(diag['source'])
-# Linux 上不应有 claude_desktop
-assert 'claude_desktop' not in sources_seen or True  # 平台限制来源可能不出现在诊断中
-print(f'Sources processed: {sources_seen}')
+# Linux 上不应出现 claude_desktop（PLATFORM_RESTRICTED_SOURCES 限制为 Darwin/Windows）
+assert 'claude_desktop' not in sources_seen, \
+    f'claude_desktop should be skipped on Linux, but was seen: {sources_seen}'
+print(f'OK: claude_desktop not in sources ({sources_seen})')
 "
 ```
+
+> **说明**：`PLATFORM_RESTRICTED_SOURCES` 目前只包含 `claude_desktop`（Darwin/Windows）。被它命中的来源在 `ingest_all()` 循环中直接 `continue`，不会出现在诊断记录中。`warp` 虽有平台限制（仅 macOS/Windows 有数据库路径），但不在该映射里，在 Linux 上会被尝试解析并产生 `no_input`，不属于平台跳过。
 
 **预期结果**：平台限制来源在不适用的操作系统上不出现在处理列表中。
 
@@ -1407,20 +1427,29 @@ adr-sensor --source claude --output-dir ./test-subagent --output-format jsonl
 
 python3 -c "
 import json
+subagent_count = 0
+parent_verified = 0
 with open('./test-subagent/agent_event_logs.jsonl') as f:
-    subagent_count = 0
     for line in f:
         event = json.loads(line)
         sid = event['session_id']
         if '_agent_' in sid:
             subagent_count += 1
-            # 验证子代理字段
             ctx = event.get('session_context', {})
-            assert 'parent_session_id' in ctx or '_agent_' in sid
-            print(f'Subagent: {sid}')
-    print(f'Total subagent sessions: {subagent_count}')
+            # 验证子代理字段：parent_session_id 和 agent_id 应存在
+            assert 'parent_session_id' in ctx, \
+                f'Subagent {sid} missing parent_session_id in session_context'
+            assert 'agent_id' in ctx, \
+                f'Subagent {sid} missing agent_id in session_context'
+            parent_verified += 1
+            print(f'Subagent: {sid} -> parent={ctx[\"parent_session_id\"]}')
+    print(f'Total subagent sessions: {subagent_count}, parent verified: {parent_verified}')
+    if subagent_count == 0:
+        print('No subagent sessions found (precondition not met)')
 "
 ```
+
+> **手工检查标记**：如果当前环境没有子代理会话日志（`subagents/` 目录不存在），此测试无法自动验证，应标记为手工检查——需要先使用 Claude Code 子代理功能生成测试日志。
 
 **预期结果**：子代理 session_id 包含 `_agent_` 后缀，与父会话关联。
 
@@ -1436,6 +1465,8 @@ adr-sensor --output-dir ./test-mcp --output-format jsonl
 python3 -c "
 import json
 mcp_tools = set()
+mcp_with_server = 0
+mcp_without_server = 0
 with open('./test-mcp/agent_event_logs.jsonl') as f:
     for line in f:
         event = json.loads(line)
@@ -1443,10 +1474,18 @@ with open('./test-mcp/agent_event_logs.jsonl') as f:
             for tool in msg.get('tools', []):
                 if tool.get('tool_type') == 'mcp_tool':
                     mcp_tools.add(tool['tool_name'])
-                    assert 'server_name' in tool or tool.get('server_name') is None
-print(f'MCP tools found: {mcp_tools}')
+                    # server_name 应作为字段存在（值可为 None 表示记录名模糊）
+                    assert 'server_name' in tool, \
+                        f'MCP tool {tool[\"tool_name\"]} missing server_name field entirely'
+                    if tool['server_name'] is not None:
+                        mcp_with_server += 1
+                    else:
+                        mcp_without_server += 1
+print(f'MCP tools: {len(mcp_tools)} (with server_name: {mcp_with_server}, without: {mcp_without_server})')
 "
 ```
+
+> **说明**：`server_name` 字段应存在于 `mcp_tool` 类型的工具调用中（源码 `ToolUsage` dataclass 定义 `server_name: Optional[str] = None`）。值为 `None` 表示记录名模糊时无法归属 MCP server，但字段本身应存在。此断言验证字段存在性而非值非空。
 
 **预期结果**：MCP 工具被标记为 `mcp_tool` 类型，`server_name` 已填充或留空（记录名模糊时）。
 
@@ -1461,11 +1500,29 @@ print(f'MCP tools found: {mcp_tools}')
 adr-sensor --source claude --output-dir ./test-ok --fail-on-error
 echo "Clean exit: $?"
 
-# 制造错误（损坏日志）后运行
-echo 'corrupt' >> ~/.claude/projects/*/test.jsonl 2>/dev/null
-adr-sensor --source claude --output-dir ./test-err --fail-on-error 2>&1 || true
-echo "Error exit: $?"
+# 制造错误（在真实日志目录下建一个专用 fixture，再追加损坏行）
+CORRUPT_DIR=~/.claude/projects/fail-on-error-test
+mkdir -p "$CORRUPT_DIR"
+printf '%s\n' '{"type":"user","sessionId":"fail-on-error","timestamp":"2026-01-01T00:00:00+00:00","message":{"role":"user","content":"clean session"}}' > "$CORRUPT_DIR/test.jsonl"
+echo 'corrupt' >> "$CORRUPT_DIR/test.jsonl"
+
+# 注意：不要在命令后加 || true，否则 $? 是 true 的退出码而非 sensor 的
+adr-sensor --source claude --output-dir ./test-err --fail-on-error 2>&1
+SENSOR_EXIT=$?
+echo "Error exit: ${SENSOR_EXIT}"
+
+# 验证退出码
+if [ "${SENSOR_EXIT}" -ne 0 ]; then
+    echo "OK: --fail-on-error returned nonzero on parse error"
+else
+    echo "FAIL: --fail-on-error returned 0 despite errors"
+fi
+
+# 清理专用 fixture
+rm -rf "$CORRUPT_DIR"
 ```
+
+> **CLI 行为**：`cli.py` 中 `--fail-on-error` 的实现是在 `observer.has_errors is True` 时执行 `raise SystemExit(1)`。`has_errors` 在诊断写入失败，或任一诊断记录状态为 `partial`/`failed` 时为真。OTLP 导出失败也会触发 `SystemExit(1)`。
 
 **预期结果**：有解析错误时 `--fail-on-error` 返回非零退出码，无错误时返回 0。
 
@@ -1496,7 +1553,7 @@ ruff format adr_sensor/
 测试特点：
 
 - **合成记录**：各解析器的契约测试使用合成 transcripts/记录，不启动实际 AI 代理
-- **跨平台**：测试在所有支持的 host 上运行（CI matrix）
+- **跨平台**：Gemini CLI 解析器的测试在 macOS、Linux、Windows 三个 host 的 CI 上运行（详见 5.5.3）
 - **无需账户**：例如 Gemini 测试不需要 Gemini 账户
 - **契约验证**：多个解析器对照上游源码验证：
   - Gemini CLI：对照 record types、journal writer、storage paths、supported platforms
@@ -1526,18 +1583,55 @@ uv sync
 uv run pytest tests/ -v
 ```
 
-#### 5.5.3 CI Matrix
+#### 5.5.3 CI 工作流
 
-Gemini CLI 解析器的 CI matrix 覆盖三平台：
+截至 `uber/ADR@6b33dff`（2026-10-16），仓库中与 Sensor 相关的实际 CI 工作流为 `.github/workflows/sensor-gemini.yml`，其配置如下：
 
 ```yaml
-# 简化的 CI matrix 概念
-matrix:
-  os: [ubuntu-latest, macos-latest, windows-latest]
-  python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+# .github/workflows/sensor-gemini.yml（实际配置）
+name: Gemini CLI parser platforms
+on:
+  pull_request:
+    paths: ['Sensor/**', '.github/workflows/sensor-gemini.yml']
+  push:
+    branches: [main]
+    paths: ['Sensor/**', '.github/workflows/sensor-gemini.yml']
+permissions:
+  contents: read
+jobs:
+  parser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --extra dev --python 3.12
+        working-directory: Sensor
+      - run: uv run pytest tests/test_gemini_parser.py -q
+        working-directory: Sensor
 ```
 
-每个组合执行：discovery（日志路径发现）、parsing（记录解析）、export（导出验证）。
+**实际 CI 覆盖**：
+
+| 维度 | 实际配置 |
+|---|---|
+| 操作系统 | Ubuntu、macOS、Windows（三平台） |
+| Python 版本 | 固定 3.12（非多版本矩阵） |
+| 执行范围 | 仅 `tests/test_gemini_parser.py`（Gemini CLI 解析器测试） |
+| 触发条件 | PR 或 push 到 main，且改动涉及 `Sensor/**` 或该工作流文件 |
+
+**声明支持与已验证覆盖**：
+
+| 维度 | 声明范围 | CI 已验证 |
+|---|---|---|
+| Python 版本 | `requires-python = ">=3.9"`（`pyproject.toml` 声明 3.9–3.13） | 仅 3.12 |
+| 操作系统 | classifiers 声明 macOS/Windows/Linux | 三平台（仅 Gemini 测试） |
+| 测试范围 | `tests/` 目录全部测试（快照 `6b33dff` 下 426 个 `def test_` 函数） | 仅 Gemini parser 子集 |
+
+> **注意**：`pyproject.toml` 声明支持的 Python 版本范围不能替代实际 CI 验证证据。其他解析器（Claude/Cursor/Cline 等）的跨平台测试覆盖情况未在仓库工作流中体现。
 
 ---
 
@@ -1547,14 +1641,16 @@ matrix:
 
 | 特性 | 传统 EDR | ADR Sensor |
 |---|---|---|
-| **可见性层级** | 系统级（文件/进程/网络） | 语义级（意图/推理/工具调用） |
-| **因果链** | 无法关联意图与执行 | 完整重建 prompt→reasoning→tool→outcome |
-| **AI 代理行为理解** | 无法区分恶意与良性代理行为 | 可判断行为是否对齐用户意图 |
-| **MCP 工具调用可见性** | 不可见 | 完整记录参数和结果 |
+| **可见性层级** | 系统级（文件/进程/网络） | 语义级（prompt/推理/工具调用） |
+| **行为链重建** | 无法关联意图与执行 | 基于持久化日志尽可能重建 prompt→reasoning→tool→outcome 行为链（受来源记录完整性限制） |
+| **AI 代理行为理解** | 无法区分代理行为与人类操作 | 提供支持意图/行为分析的语义遥测，供 Detector 判断是否偏离用户意图 |
+| **MCP 工具调用可见性** | 不可见 | 记录参数和结果（受截断限制） |
 | **设计时代背景** | MCP 之前 | MCP 之后 |
-| **语义威胁检测** | 不支持 | 核心能力 |
-| **部署方式** | 系统级守护进程 | 每小时调度的 Python 脚本 |
-| **性能开销** | 持续监控，资源占用高 | 每次 0.182 秒，轻量级 |
+| **语义威胁检测** | 不支持 | 不在 Sensor 职责范围；由 Detector 基于 Sensor 提供的遥测数据执行 |
+| **部署方式** | 系统级守护进程 | 单次运行的 Python CLI（论文描述 Uber 生产环境每小时外部调度） |
+| **性能开销** | 持续监控，资源占用高 | 论文报告每次 0.182 秒（Uber 生产环境数据） |
+
+> **职责边界**：Sensor 的职责是解析、标准化和输出代理活动遥测。是否偏离用户意图、是否构成威胁，是 Detector 组件基于 Sensor 产出的 AgentEvent 执行的检测逻辑。`AgentObserver` 源码（`observer.py`）不包含任何意图判断、威胁检测或行为分析代码——其完整职责链为：Parser 解析 → 内容过滤 → 增量去重 → 原子写入 → 健康记录 → 摘要展示。
 
 ### 6.2 与网关方案的对比
 
@@ -1579,13 +1675,14 @@ matrix:
 | **截断限制** | Claude Code 工具参数/结果 1,000 字符 | 超长内容被截断，可能丢失部分上下文 |
 | **OTLP 导出不脱敏** | 完整数据传输 | prompts、凭据、路径可能被传输到 SIEM |
 | **合成记录测试** | 不启动实际 AI 代理 | 无法覆盖真实代理的所有行为变体 |
-| **研究工件** | 非 production-ready | 依赖携带已知 CVE，需隔离环境运行 |
+| **Session 级记录粒度** | 每 session 一个 AgentEvent | 非逐条工具调用实时上报；增量更新是 session 级快照刷新 |
+| **仓库研究工件定位** | 仓库整体非 production-ready | `OPEN_SOURCE_REVIEW.md` 列出的已知 CVE 对应 `Detection/` 的 AgentDojo pinned 依赖与 LlamaFirewall 基线依赖树；Sensor 运行时依赖仅 `tabulate` + `zstandard`，部署前需单独审计 |
 
 ---
 
 ## 附录 A 代码坐标索引
 
-路径相对 `Sensor/adr_sensor/`，基于初始公开 release commit `db4fb0e` 和后续更新。
+路径相对 `Sensor/adr_sensor/`，基于源码快照 `6b33dff`（2026-10-16）。
 
 | 主题 | 坐标 |
 |---|---|
@@ -1627,13 +1724,16 @@ matrix:
 | C6 | 默认回溯窗口 14 天，按文件修改时间 | README 各代理日志路径节 |
 | C7 | Claude Code 工具参数/结果在 1,000 字符处截断 | README Claude Code 节 |
 | C8 | OTLP 导出不应用脱敏 | README OTLP 导出节；明确警告 |
-| C9 | Sensor 不做威胁检测，检测由 Detector 负责 | README 五大能力；论文 §3 |
+| C9 | Sensor 不做威胁检测，检测由 Detector 负责；AgentObserver 无意图判断/行为分析代码 | README 五大能力；论文 §3；`observer.py` 源码（固定快照 `6b33dff`） |
 | C10 | 论文未在正文中明确提及"AgentEvent Schema" | 论文 HTML 全文 |
 | C11 | 244 个 Sensor 测试在 Python 3.11 上通过 | Gemini CLI commit `93ed35c` commit message |
-| C12 | 生产环境每小时调度，0.182 秒/次 | 论文 §4 |
-| C13 | 研究工件，非 production-ready | `docs/OPEN_SOURCE_REVIEW.md` |
-| C14 | 跨平台支持 macOS/Linux/Windows | README；CI matrix |
+| C12 | Uber 生产环境每小时外部调度，0.182 秒/次（非 CLI 内置调度器） | 论文 §4 |
+| C13 | 仓库整体为研究工件；OPEN_SOURCE_REVIEW.md 列出的 CVE 对应 Detection/ 的 AgentDojo pinned 依赖与 LlamaFirewall 基线依赖树；Sensor 运行时依赖仅 tabulate + zstandard | `docs/OPEN_SOURCE_REVIEW.md`；`Sensor/pyproject.toml`（固定快照 `6b33dff`） |
+| C14 | CI 工作流 sensor-gemini.yml：三 OS × Python 3.12，仅执行 test_gemini_parser.py；pyproject.toml 声明 3.9–3.13 但 CI 仅验证 3.12 | `.github/workflows/sensor-gemini.yml`；`Sensor/pyproject.toml`（固定快照 `6b33dff`） |
 | C15 | Copilot CLI 不覆盖 VS Code Copilot Chat 扩展 | README Copilot CLI 节 |
+| C16 | AgentEvent 是 Session 级记录（每 session 一个），非逐条行为事件流；OTLP 导出为每 session 一条 LogRecord | `schemas/agent_event_schema.py`；README OTLP 导出节 |
+| C17 | UUID 由 hostname/username/timestamp/source/session_id/消息数/工具数/前 100 字符摘要拼接后 SHA-256，非完整 payload 哈希；工具结果变化时 UUID 不一定改变 | `schemas/agent_event_schema.py` `__post_init__`（固定快照 `6b33dff`）；README |
+| C18 | CLI 默认输出格式为 json，需显式指定 `--output-format jsonl` 生成 JSONL 文件 | `cli.py` argparse 定义（固定快照 `6b33dff`） |
 
 ---
 
@@ -1643,7 +1743,7 @@ matrix:
 |---|---|
 | ADR | Agentic AI Detection and Response，Uber 开源的企业 AI 代理安全系统 |
 | Sensor | ADR 的遥测采集组件，解析 AI 代理日志并标准化为 AgentEvent |
-| AgentEvent | Sensor 的统一输出 schema，包含会话、聊天历史、工具调用、上下文 |
+| AgentEvent | Sensor 的统一输出 schema，Session 级记录（每 session 一个），包含会话聊天历史、工具调用、上下文和 token 用量 |
 | AgentObserver | Sensor 的编排器，执行 ingest → filter → display → export 流水线 |
 | BaseParser | 所有解析器的抽象基类，定义 `parse_all()` 接口 |
 | MCP | Model Context Protocol，AI 代理与外部工具通信的协议 |
