@@ -2,6 +2,10 @@
 
 > 版本锚定：`uber/ADR` 仓库 `Detection/` 目录，commit `6b33dff`（2026-10-16）。`tasks.json` 定义 304 个任务（261 benign / 43 malicious），`mcp_servers_registry.json` 定义 134 个服务器、775 个能力。Python `>=3.10,<3.13`。仓库 Apache 2.0，`benchmark/agentdojo/` 为 MIT 的 vendored 代码。
 
+![ADR-Bench 组件概览](assets/cheat-sheet.png)
+
+概览图。图中流程与数字仅作速查，具体口径以本文正文和附录 B 的证据索引为准。
+
 ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合成 MCP 服务器 fixture、一个把 Claude Code 当 agent runtime 的并发执行器、一个把执行日志压成单文件的打包格式、一个把真值和检测结果算成混淆矩阵的打分器。理解其中任何一件都需要同时看另外三件，这是本文的组织方式。
 
 ## 目录
