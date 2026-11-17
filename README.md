@@ -6,6 +6,10 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 概览图。阶段命名与置信分档以 [discovery/source-notes.md](discovery/source-notes.md) 为准。
 
+![Sensor 组件概览](sensor/assets/cheat-sheet.png)
+
+Sensor 概览图。图中流程与数字仅作速查，具体口径以 [sensor/source-notes.md](sensor/source-notes.md) 正文为准。
+
 ## 内容
 
 | 组件 | 笔记 | 覆盖范围 |
@@ -31,7 +35,7 @@ Uber ADR（Agentic AI Detection and Response）的源码级研究笔记。非官
 
 实测数据来自 macOS 单机，路径中的用户名替换为 `<user>`，主机名替换为 `<host>`。所有输出片段取自同一次运行，未拼接。
 
-笔记里出现的数字都能对回代码常量或实测输出。与官方 README 口径不一致的地方，以代码为准并标注差异。
+有技术意义的数字都注明来源并标明证据类型：源码常量给代码位置，统计数据说明统计对象与依据，实测数据记录环境与输出，外部资料给出处。与官方 README 口径不一致的地方，以代码为准并标注差异。
 
 ## 范围
 
