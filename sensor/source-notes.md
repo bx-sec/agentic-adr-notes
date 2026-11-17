@@ -2,6 +2,10 @@
 
 > 版本锚定：`uber/ADR` 仓库 `Sensor/` 目录，源码快照 `6b33dff`（2026-10-16）。初始公开 release commit `db4fb0e`（2026-07-29），Gemini CLI 支持 commit `93ed35c`（2026-09-16），Antigravity 支持 commit `7e4606b`。Python 3.9–3.13（`pyproject.toml` 声明；CI 仅验证 3.12），运行时依赖 `tabulate` + `zstandard`（可选 `otel` extra）。Apache 2.0。
 
+![Sensor 组件概览](assets/cheat-sheet.png)
+
+概览图。图中流程与数字仅作速查，具体口径以本文正文和附录 B 的证据索引为准。
+
 ## 目录
 
 - [一、Sensor 是什么](#一sensor-是什么)
