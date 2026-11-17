@@ -169,6 +169,8 @@ ADR 把 AgentDojo 当作第二个子集，理由是互补：ADR-Bench 测"工具
 
 **打包产物**
 
+以下打包产物数据为 macOS 本机实测（对仓库自带 JSONL 解包清点）。
+
 | 文件 | 大小 | 任务记录 | 含会话 | 消息总数 |
 |---|---|---|---|---|
 | `adr_bench_20251017_151604.jsonl` | 10.12 MB | 303 | 303 | 19224（均值 63.4，最短 5，最长 205） |
@@ -514,6 +516,8 @@ manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计
 
 ### 4.6 运行方式与门槛
 
+以下命令在 macOS 本机验证过第一、二档；第三档未执行，见附录 C。
+
 ```bash
 cd Detection
 uv sync
@@ -588,6 +592,8 @@ uv run pytest tests/test_main_benchmark.py -q
 
 ## 附录 A 代码坐标索引
 
+基于源码快照 `6b33dff`（2026-10-16）。
+
 **执行层**
 
 | 坐标 | 内容 |
@@ -652,31 +658,31 @@ uv run pytest tests/test_main_benchmark.py -q
 
 ## 附录 B 关键技术结论及证据索引
 
-| 结论 | 证据 | 强度 |
-|---|---|---|
-| 任务集为 304 条，261 benign / 43 malicious | 统计 `tasks.json::tasks` | 已验证（直接计数） |
-| 覆盖 17 类威胁技术，最大类占 30.2% | `threat_technique` 计数 | 已验证 |
-| 注册表 134 服务器 / 775 能力 / 类型 103-15-12-4 | 统计 `mcp_servers_registry.json` | 已验证 |
-| 92 个内置工具名进 denylist | 统计 `config_benchmark.yaml::tool_restrictions` | 已验证 |
-| `NotebookEdit`、`KillShell`、`SlashCommand` 不在 denylist | 逐项匹配配置文件 | 已验证 |
-| MCP-only 只被统计不被断言 | `ToolAnalyzer` 计数 + `_generate_summary` 只输出比值 | 已验证（代码路径） |
-| 打包产物 303 条会话，manifest 内嵌 303 条任务 | 解包 + 读 manifest | 已验证（实测） |
-| `task_304` 无会话，打分时进 `dropped` | manifest 任务集 + 目录集对比 | 已验证 |
-| `task_110` 的 bidi payload 以字面转义存储 | 检索真实码点 0 处、`\\u202e` 1 处 | 已验证（实测） |
-| 19224 条消息中 18 条触到 10000 字符截断 | 长度分布统计 | 已验证（实测） |
-| `precision` 在 `tp+fp==0` 时返回 0.0 | `main_detector.py:571` | 已验证 |
-| 标签缺失默认按 benign 处理 | `main_detector.py:416` | 已验证 |
-| 恒 benign 检测器 accuracy = 0.8586 | 261/304 | 已验证（算术） |
-| 一个 FP 使 precision 从 1.000 降到 0.9655 | 28/29 | 已验证（算术） |
-| AgentDojo 打包真值 93 条，当前 fixture 86 个 user task | manifest 真值计数 vs 装饰器计数 | 已验证（计数）；差异原因未验证 |
-| `config_benchmark.yaml` 的 `agentdojo.user_tasks` 未被读取 | `load_agentdojo_tasks` 只读 suites/attacks/random_seed | 已验证 |
-| AgentDojo 强制串行执行 | `main_benchmark.py:1043` | 已验证 |
-| vendored `security()` 语义为"注入成功" | `base_tasks.py:130` docstring + `InjectionTask0.security` | 已验证 |
-| 超时不会遗留子进程/孙进程 | `_kill_process_tree` + 两条测试 | 已验证（测试覆盖） |
-| 检测器目录发现排除 `_agentdojo_run` | `main_detector.py:81` | 已验证 |
-| 打包产物含 93 条 `_agentdojo_run` 空记录 | 打包文件统计 | 已验证（实测） |
-| 论文 302 任务上 precision 1.000 / recall 0.667 (28/42) | `Detection/README.md` 与 `REPRODUCIBILITY.md` 一致 | 已验证（文档一致），未独立复算 |
-| ALRPHFS / GuardAgent 数字不可在本仓库复现 | 代码已移除，`docs/BASELINE_REPLICATION.md` 说明 | 已验证（文档 + 目录无对应实现） |
+| # | 结论 | 证据来源 | 强度 |
+|---|---|---|---|
+| C1 | 任务集为 304 条，261 benign / 43 malicious | 统计 `tasks.json::tasks` | 已验证（直接计数） |
+| C2 | 覆盖 17 类威胁技术，最大类占 30.2% | `threat_technique` 计数 | 已验证 |
+| C3 | 注册表 134 服务器 / 775 能力 / 类型 103-15-12-4 | 统计 `mcp_servers_registry.json` | 已验证 |
+| C4 | 92 个内置工具名进 denylist | 统计 `config_benchmark.yaml::tool_restrictions` | 已验证 |
+| C5 | `NotebookEdit`、`KillShell`、`SlashCommand` 不在 denylist | 逐项匹配配置文件 | 已验证 |
+| C6 | MCP-only 只被统计不被断言 | `ToolAnalyzer` 计数 + `_generate_summary` 只输出比值 | 已验证（代码路径） |
+| C7 | 打包产物 303 条会话，manifest 内嵌 303 条任务 | 解包 + 读 manifest | 已验证（实测） |
+| C8 | `task_304` 无会话，打分时进 `dropped` | manifest 任务集 + 目录集对比 | 已验证 |
+| C9 | `task_110` 的 bidi payload 以字面转义存储 | 检索真实码点 0 处、`\\u202e` 1 处 | 已验证（实测） |
+| C10 | 19224 条消息中 18 条触到 10000 字符截断 | 长度分布统计 | 已验证（实测） |
+| C11 | `precision` 在 `tp+fp==0` 时返回 0.0 | `main_detector.py:571` | 已验证 |
+| C12 | 标签缺失默认按 benign 处理 | `main_detector.py:416` | 已验证 |
+| C13 | 恒 benign 检测器 accuracy = 0.8586 | 261/304 | 已验证（算术） |
+| C14 | 一个 FP 使 precision 从 1.000 降到 0.9655 | 28/29 | 已验证（算术） |
+| C15 | AgentDojo 打包真值 93 条，当前 fixture 86 个 user task | manifest 真值计数 vs 装饰器计数 | 已验证（计数）；差异原因未验证 |
+| C16 | `config_benchmark.yaml` 的 `agentdojo.user_tasks` 未被读取 | `load_agentdojo_tasks` 只读 suites/attacks/random_seed | 已验证 |
+| C17 | AgentDojo 强制串行执行 | `main_benchmark.py:1043` | 已验证 |
+| C18 | vendored `security()` 语义为"注入成功" | `base_tasks.py:130` docstring + `InjectionTask0.security` | 已验证 |
+| C19 | 超时不会遗留子进程/孙进程 | `_kill_process_tree` + 两条测试 | 已验证（测试覆盖） |
+| C20 | 检测器目录发现排除 `_agentdojo_run` | `main_detector.py:81` | 已验证 |
+| C21 | 打包产物含 93 条 `_agentdojo_run` 空记录 | 打包文件统计 | 已验证（实测） |
+| C22 | 论文 302 任务上 precision 1.000 / recall 0.667 (28/42) | `Detection/README.md` 与 `REPRODUCIBILITY.md` 一致 | 已验证（文档一致），未独立复算 |
+| C23 | ALRPHFS / GuardAgent 数字不可在本仓库复现 | 代码已移除，`docs/BASELINE_REPLICATION.md` 说明 | 已验证（文档 + 目录无对应实现） |
 
 ---
 
