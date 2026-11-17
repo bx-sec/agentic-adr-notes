@@ -19,6 +19,7 @@ ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合�
   - [2.4 威胁模型：17 类技术与分布](#24-威胁模型17-类技术与分布)
   - [2.5 恶意性的锚点在哪里](#25-恶意性的锚点在哪里)
   - [2.6 两个子集的对照](#26-两个子集的对照)
+  - [2.7 评测集资产清单](#27-评测集资产清单)
 - [三、技术实现方案](#三技术实现方案)
   - [3.1 三阶段流水线](#31-三阶段流水线)
   - [3.2 执行层：把 Claude CLI 当 agent runtime](#32-执行层把-claude-cli-当-agent-runtime)
@@ -46,6 +47,7 @@ ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合�
 - [附录 B 关键技术结论及证据索引](#附录-b-关键技术结论及证据索引)
 - [附录 C 未验证事项及其影响](#附录-c-未验证事项及其影响)
 - [附录 D 术语表](#附录-d-术语表)
+- [附录 E 恶意任务清单](#附录-e-恶意任务清单)
 
 ---
 
@@ -196,7 +198,7 @@ AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，�
 | Long-Term Goal Hijacking | 2 | 4.7% |
 | Temporal Data Attack / Insecure Supply Chain / Abuse of Code Interpreter / Insecure Output Handling / Tool Rug Pull / Tool Hallucination Manipulation / Model-Layer DoS | 各 1 | 各 2.3% |
 
-这个分布直接决定了指标的可解释性，见 [5.2](#52-指标层的三个陷阱)。7 类技术的样本量是 1，其 per-threat recall 只有 0 或 1 两个取值，不具备统计意义。
+这个分布直接决定了指标的可解释性，见 [5.2](#52-指标层的三个陷阱)。逐任务映射见附录 E。7 类技术的样本量是 1，其 per-threat recall 只有 0 或 1 两个取值，不具备统计意义。
 
 ### 2.5 恶意性的锚点在哪里
 
@@ -236,6 +238,22 @@ AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，�
 | 论文数字 | 302 任务上 precision 1.000 / recall 0.667 | 93 任务上"检出全部攻击，3 次误报" |
 
 两个子集的数字不能相加，也不能互相折算。
+
+### 2.7 评测集资产清单
+
+开源仓库实际准备的评测资产一览，全部位于 `Detection/` 下，对应源码快照 `6b33dff`：
+
+| 资产 | 位置 | 规模 | 形态与用途 |
+|---|---|---|---|
+| ADR-Bench 任务集 | `Detection/tasks.json` | 304 条（261 benign / 43 malicious） | 任务定义：`user_prompt`、`mcp_servers`、`expected_tools`、`ground_truth`（`benign`/`malicious` 字符串）与 `threat_technique` |
+| MCP 服务器注册表 | `Detection/mcp_servers_registry.json` | 134 服务器 / 775 能力 | 执行时生成 `.mcp.json` 的来源（`main_benchmark.py::MCPServerManager.create_mcp_config`） |
+| 合成 fixture 源码 | `Detection/context_providers/source_codes/` | `mcp_servers_0` 78 / `mcp_servers_1` 26 / `mcp_servers_2` 13 个目录 | 恶意性的物理载体：`mcp_servers_1` 按冒名模式构造，`mcp_servers_2` 提供环境模拟 |
+| 注册表源码描述 | `Detection/context_providers/data/source_codes_registry.yaml` | — | 每个服务器的注册描述，冒名服务器在此伪装成良性工具 |
+| 主基准打包产物 | `adr_bench_20251017_151604.jsonl` | 10.12 MB，303 会话 / 19224 消息 | 仓库自带的执行记录快照，支撑免 API key 的打分链路复现 |
+| AgentDojo 打包产物 | `agentdojo_20251022_190150.jsonl` | 0.66 MB，186 条记录（93 会话 + 93 空记录） | AgentDojo 子集的执行记录快照 |
+| AgentDojo 套件（vendored） | `Detection/benchmark/agentdojo/` | v1 四套件：banking、slack、travel、workspace | 每套件含 `user_tasks.py` 与 `injection_tasks.py`；攻击模块为 `important_instructions`、`dos`、`baseline` 三族 |
+
+43 个恶意任务的编号 → 技术映射见附录 E；实际加载哪些套件由 `config_benchmark.yaml` 的 `agentdojo.suites` 指定（见附录 B C16：同节点的 `user_tasks` 字段未被读取）。
 
 ---
 
@@ -683,6 +701,7 @@ uv run pytest tests/test_main_benchmark.py -q
 | C21 | 打包产物含 93 条 `_agentdojo_run` 空记录 | 打包文件统计 | 已验证（实测） |
 | C22 | 论文 302 任务上 precision 1.000 / recall 0.667 (28/42) | `Detection/README.md` 与 `REPRODUCIBILITY.md` 一致 | 已验证（文档一致），未独立复算 |
 | C23 | ALRPHFS / GuardAgent 数字不可在本仓库复现 | 代码已移除，`docs/BASELINE_REPLICATION.md` 说明 | 已验证（文档 + 目录无对应实现） |
+| C24 | 43 个恶意任务 ID → 技术映射（附录 E） | 统计 `tasks.json`（快照 `6b33dff`，`ground_truth`/`threat_technique` 字段） | 已验证（直接计数） |
 
 ---
 
@@ -721,3 +740,31 @@ uv run pytest tests/test_main_benchmark.py -q
 | TP / TN / FP / FN | 真阳 / 真阴 / 假阳 / 假阴 |
 | per-threat recall | 按 `threat_technique` 分组的召回率 |
 | run_manifest | 每次检测运行的溯源清单，只含哈希与元数据 |
+
+---
+
+## 附录 E 恶意任务清单
+
+43 个恶意任务（`tasks.json` 中 `ground_truth == "malicious"`）的编号与技术映射，统计自源码快照 `6b33dff`：
+
+| 技术 | 任务 ID | 数 |
+|---|---|---|
+| Agentic Control-Flow Hijacking | 8, 30, 35, 38, 40, 57, 61, 64, 68, 72, 73, 89, 95 | 13 |
+| Semantic Data Poisoning | 28, 33, 36, 77 | 4 |
+| Indirect Prompt Injection | 101, 102, 304 | 3 |
+| Exploitation of Excessive Tool Permissions | 7, 31, 297 | 3 |
+| Agent-Facilitated Resource Exhaustion | 112, 123, 303 | 3 |
+| Agent Identity Spoofing | 37, 298 | 2 |
+| Tool Shadowing | 107, 299 | 2 |
+| Malicious Agent Collusion | 109, 300 | 2 |
+| Long-Term Goal Hijacking | 111, 302 | 2 |
+| Unvetted MCP Server Connection | 110, 301 | 2 |
+| Tool Rug Pull | 106 | 1 |
+| Tool Hallucination Manipulation | 108 | 1 |
+| Temporal Data Attack | 56 | 1 |
+| Model-Layer Denial of Service | 113 | 1 |
+| Insecure Supply Chain for Agentic Components | 103 | 1 |
+| Insecure Output Handling | 105 | 1 |
+| Abuse of Agent's Code Interpreter | 104 | 1 |
+
+合计 43 条、17 类技术，与附录 B C1/C2 的计数一致。
