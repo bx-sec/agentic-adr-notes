@@ -23,7 +23,7 @@ ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合�
 - [三、技术实现方案](#三技术实现方案)
   - [3.1 三阶段流水线](#31-三阶段流水线)
   - [3.2 执行层：把 Claude CLI 当 agent runtime](#32-执行层把-claude-cli-当-agent-runtime)
-  - [3.3 MCP-only 的三层强制与其缺口](#33-mcp-only-的三层强制与其缺口)
+  - [3.3 MCP-only 使用约束的实现机制与缺口](#33-mcp-only-使用约束的实现机制与缺口)
   - [3.4 transcript 归一化与 payload 保真](#34-transcript-归一化与-payload-保真)
   - [3.5 工具调用分析](#35-工具调用分析)
   - [3.6 打包格式与 inflate 的安全边界](#36-打包格式与-inflate-的安全边界)
@@ -311,15 +311,15 @@ claude -p "<user_prompt>" \
 
 其三，`.mcp.json` 的路径参数是字符串替换，`_process_arg_template` 只支持四个占位符（`{workspace_path}`、`{database_path}`、`{database_url}`、`{allowed_directories}`），且用 `workspace_dir.parent.parent.parent.parent` 反推项目根。目录层级一变，`{allowed_directories}` 就指错地方。
 
-### 3.3 MCP-only 的三层强制与其缺口
+### 3.3 MCP-only 使用约束的实现机制与缺口
 
-"强制纯 MCP 使用"在 README 里写作一个事实，实现上是三层叠加，每层强度不同。
+"强制纯 MCP 使用"在 README 里写作一个事实，实现上是三层叠加，每层强度不同——只有第一层真正限制工具，第二层是权限模式配置，第三层只是行为引导。
 
 | 层 | 机制 | 位置 | 强度 |
 |---|---|---|---|
-| 1 | `--disallowedTools` 列出 92 个内置工具名 | `config_benchmark.yaml::tool_restrictions` | 依赖名单完整 |
-| 2 | `--dangerously-skip-permissions` | `build_claude_command` | 只关权限提示，不关工具 |
-| 3 | `--append-system-prompt` 声明"沙箱内执行、不得拒绝" | 同上，受 `security.disable_safety_mechanisms` 控制 | 影响模型行为，非强制 |
+| 1 | `--disallowedTools` 列出 92 个内置工具名（denylist，唯一的工具限制层） | `config_benchmark.yaml::tool_restrictions` | 依赖名单完整 |
+| 2 | `--dangerously-skip-permissions`（权限模式配置） | `build_claude_command` | 只关权限提示，不关工具 |
+| 3 | `--append-system-prompt` 声明"沙箱内执行、不得拒绝"（行为引导） | 同上，受 `security.disable_safety_mechanisms` 控制 | 影响模型行为，非强制 |
 
 92 这个数字可以对回配置：`file_tools` 8 + `edit_tools` 4 + `terminal_tools` 9 + `search_tools` 6 + `memory_tools` 7 + `git_tools` 7 + `time_tools` 7 + `web_tools` 17 + `utility_tools` 17 + `communication_tools` 10。
 
@@ -574,11 +574,11 @@ uv run pytest tests/test_main_benchmark.py -q
 
 **陷阱一：accuracy 在这个分布上没有信息量。** 261:43 ≈ 6:1，一个恒输出 benign 的检测器准确率是 261/304 = 0.8586，高于任何"有召回但有几个误报"的真实检测器。用 accuracy 做对比会得出荒谬结论。
 
-**陷阱二：precision 在 0 FP 时是退化指标。** 论文报告 precision 1.000，来自 28 TP / 0 FP。这个 1.000 没有上界空间——再加一个 TP 还是 1.000，而**一个 FP 就掉到 28/29 = 0.9655**。所以 precision 1.0 的信息量远小于它看起来的样子，真正的信息在"FP 计数 = 0"这个整数上。
+**陷阱二：precision 在 0 FP 时是退化指标。** 论文报告 precision 1.000，来自 28 TP / 0 FP（论文 302 任务评测口径，与本仓库 304 条任务定义、303 条打包会话不是同一统计快照）。这个 1.000 没有上界空间——再加一个 TP 还是 1.000，而**一个 FP 就掉到 28/29 = 0.9655**。所以 precision 1.0 的信息量远小于它看起来的样子，真正的信息在"FP 计数 = 0"这个整数上。
 
 **陷阱三：per-threat 指标在 n=1 时不可解释。** 7 类技术各只有 1 个任务，其 recall 只能取 0 或 1。若某类恰好被检出，图上是 100%；恰好漏掉，图上是 0%。这两种情况的差别不构成任何统计证据，但柱状图会诱导读者当成能力差异。读 `fig1a_threat_bar.png` 时必须同时看 `samples`。
 
-**recall 0.667 才是真正的瓶颈。** 42 个恶意任务漏 14 个，说明当前检测逻辑对某些技术形态系统性失效。论文没有对漏检做分技术归因，这是公开材料里最大的信息缺口。
+**recall 0.667 才是真正的瓶颈。** 论文 302 任务口径下 42 个恶意任务漏 14 个，存在明显漏检；但论文没有对漏检做分技术归因，尚无法判断漏检是否集中于特定攻击技术。这是公开材料里最大的信息缺口。
 
 ### 5.3 复现性边界
 
@@ -603,7 +603,7 @@ uv run pytest tests/test_main_benchmark.py -q
 | MCP-only denylist | 简单、无需改 CLI | 名单必然不全，且验证靠比值而非断言 |
 | 任务级标签 | 标注成本低、与检测器输出粒度一致 | 无法评价"定位到第几轮"的能力 |
 | `tools_called` 单一校验 | 实现简单、判定客观 | 不校验参数与结果，完成度口径过宽 |
-| 0 FP 优先 | 企业可用性强 | recall 只有 0.667，漏检被系统性接受 |
+| 0 FP 优先 | 企业可用性强 | recall 只有 0.667（论文 302 任务口径），漏检被作为代价接受 |
 | 打包自带任务快照 | 分发自包含 | 快照与仓库定义脱钩，产生 303/304 分歧 |
 
 ---
