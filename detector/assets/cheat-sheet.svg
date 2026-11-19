@@ -20,7 +20,7 @@
   </defs>
 
   <rect width="1560" height="1120" fill="#fafbfd"/>
-  <text x="40" y="52" class="h1">Uber ADR Detector 源码笔记 · 概览</text>
+  <text x="40" y="52" class="h1">Uber ADR Detection 组件源码笔记 · 概览</text>
   <text x="40" y="80" class="s">anchor: uber/ADR Detection/ @ 6b33dff（2026-10-16） · 与 Bench 笔记共用快照</text>
 
   <!-- main flow -->
