@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1120" viewBox="0 0 1560 1120">
+  <defs>
+    <style>
+      text { font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; fill: #1f2430; }
+      .h1 { font-size: 30px; font-weight: 700; }
+      .h2 { font-size: 18px; font-weight: 700; }
+      .t  { font-size: 14px; }
+      .s  { font-size: 12px; fill: #5a6270; }
+      .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 12.5px; }
+      .box { fill: #ffffff; stroke: #c9cfda; stroke-width: 1.5; rx: 10; }
+      .stage1 { fill: #fff7ec; stroke: #e8a33d; }
+      .stage2 { fill: #eef4ff; stroke: #4a7ddb; }
+      .detbox { fill: #f4faf4; stroke: #4f9d5d; }
+      .arrow { stroke: #8a93a3; stroke-width: 2; fill: none; marker-end: url(#ah); }
+      .chip { fill: #f2f4f8; stroke: #d6dbe4; }
+    </style>
+    <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#8a93a3"/>
+    </marker>
+  </defs>
+
+  <rect width="1560" height="1120" fill="#fafbfd"/>
+  <text x="40" y="52" class="h1">Uber ADR Detector 源码笔记 · 概览</text>
+  <text x="40" y="80" class="s">anchor: uber/ADR Detection/ @ 6b33dff（2026-10-16） · 与 Bench 笔记共用快照</text>
+
+  <!-- main flow -->
+  <g>
+    <rect class="box" x="40" y="110" width="260" height="150"/>
+    <text x="56" y="138" class="h2">输入</text>
+    <text x="56" y="164" class="mono">run 目录 task_*/workspace/</text>
+    <text x="56" y="182" class="mono">claude_conversation.json</text>
+    <text x="56" y="208" class="t">真值：ADR-Bench 读 CWD 的</text>
+    <text x="56" y="226" class="t">tasks.json；AgentDojo 读</text>
+    <text x="56" y="244" class="t">run 目录 ground_truth.json</text>
+
+    <path class="arrow" d="M300,185 L345,185"/>
+
+    <rect class="box" x="350" y="110" width="235" height="150"/>
+    <text x="366" y="138" class="h2">BenchmarkAnalyzer</text>
+    <text x="366" y="164" class="t">asyncio + Semaphore 并发</text>
+    <text x="366" y="184" class="t">无会话/异常 → dropped（不计分）</text>
+    <text x="366" y="204" class="t">escalation 率实时统计</text>
+    <text x="366" y="224" class="t">run_manifest：仅 hash 类溯源</text>
+    <text x="366" y="244" class="s">main_detector.py</text>
+
+    <path class="arrow" d="M585,185 L630,185"/>
+
+    <!-- ADR dual agent -->
+    <rect class="box" x="635" y="100" width="560" height="360"/>
+    <text x="651" y="128" class="h2">ADRBaseline._analyze_messages（默认 detector）</text>
+
+    <rect class="detbox" x="655" y="145" width="520" height="56"/>
+    <text x="671" y="167" class="t" font-weight="700">① 确定性 Unicode 混淆预检（无条件，enable_triage=false 也不跳过）</text>
+    <text x="671" y="189" class="s">Tag-Block「ASCII 走私」+ bidi 控制符 + 转义字面量形式 · 命中即直接升级</text>
+
+    <rect class="stage1" x="655" y="215" width="250" height="120"/>
+    <text x="671" y="238" class="t" font-weight="700">② Tier-1 Triage LLM</text>
+    <text x="671" y="259" class="mono">gpt-4o · temp 0 · max_tokens 1000</text>
+    <text x="671" y="281" class="t">高召回解析：歧义一律 SUSPICIOUS</text>
+    <text x="671" y="301" class="t">错误 / 结构化校验失败 → 升级</text>
+    <text x="671" y="321" class="s">5 种 threat_tactic 枚举</text>
+
+    <rect class="chip" x="665" y="345" width="230" height="46"/>
+    <text x="677" y="365" class="t">良性 fast path：只记 triage</text>
+    <text x="677" y="384" class="s">method = "ADR Fast Triage"</text>
+
+    <rect class="stage2" x="925" y="215" width="250" height="176"/>
+    <text x="941" y="238" class="t" font-weight="700">③ Tier-2 Reasoning Agent</text>
+    <text x="941" y="259" class="mono">claude-sonnet-4-6 · Claude CLI</text>
+    <text x="941" y="281" class="t">子进程 + .mcp.json 挂 3 个</text>
+    <text x="941" y="301" class="t">context provider；禁写类工具</text>
+    <text x="941" y="321" class="t">拒答 → 紧凑 prompt 重试一次</text>
+    <text x="941" y="341" class="t">输出 {"is_threat": …} JSON</text>
+    <text x="941" y="361" class="s">ADR-Bench：工具恶意即全会话恶意</text>
+    <text x="941" y="379" class="s">AgentDojo：注入成功才判 true</text>
+
+    <path class="arrow" d="M905,275 L925,275"/>
+
+    <text x="651" y="438" class="s">可选 decision_contract: structured_risk_route_v1 → 严格 JSON Schema 路由 + 本地再校验，失败一律 ESCALATE</text>
+  </g>
+
+  <path class="arrow" d="M1195,185 L1240,185"/>
+
+  <rect class="box" x="1245" y="110" width="275" height="150"/>
+  <text x="1261" y="138" class="h2">输出</text>
+  <text x="1261" y="164" class="mono">adr_baseline_analysis*.json</text>
+  <text x="1261" y="190" class="t">混淆矩阵 / P / R / F1 / Acc</text>
+  <text x="1261" y="210" class="t">latency + cost 统计、per-threat</text>
+  <text x="1261" y="230" class="t">消融后缀 -woeas / -wosourcecode</text>
+  <text x="1261" y="250" class="t">-wopolicy / -wotriage</text>
+
+  <!-- baselines -->
+  <text x="40" y="500" class="h2">同一接口（BaseDetector）下的另外两个基线</text>
+  <rect class="box" x="40" y="518" width="740" height="120"/>
+  <text x="56" y="546" class="t" font-weight="700">llamafirewall_baseline</text>
+  <text x="56" y="570" class="t">gpt-4o-mini · USER→PromptGuard，ASSISTANT→AlignmentCheck（打补丁：score≥0.8 才 BLOCK）</text>
+  <text x="56" y="590" class="t">逐消息扫描，首个 BLOCK 即停；任一威胁 → 会话 malicious</text>
+  <text x="56" y="614" class="s">被强制串行：max_concurrent=1（main_detector.py:891-894）</text>
+  <rect class="box" x="800" y="518" width="720" height="120"/>
+  <text x="816" y="546" class="t" font-weight="700">jev_baseline（README 未提及）</text>
+  <text x="816" y="570" class="t">OpenRouter Decisions API（alpha）· model ~typesafe/jev-latest</text>
+  <text x="816" y="590" class="t">noul(is_malicious) ≥ 0.5 ∨ noul(policy) ≥ 0.5 ∨ category=malicious → 恶意</text>
+  <text x="816" y="614" class="s">两种模式：Context-Assisted（注入企业策略）/ Raw System 1</text>
+
+  <!-- context providers -->
+  <text x="40" y="676" class="h2">Tier-2 的 MCP 上下文供给（guardrail 外部的 context_providers/）</text>
+  <rect class="box" x="40" y="694" width="497" height="130"/>
+  <text x="56" y="722" class="t" font-weight="700">source_code_analyzer_server</text>
+  <text x="56" y="744" class="t">6 个工具：get_source_code 等</text>
+  <text x="56" y="764" class="t">bundle 上限 24 文件 / 240,000 字节</text>
+  <text x="56" y="784" class="t">registry 路径越界直接拒绝（_is_within）</text>
+  <text x="56" y="806" class="s">数据：source_codes_registry.yaml，116 条（78/26/12）</text>
+  <rect class="box" x="557" y="694" width="480" height="130"/>
+  <text x="573" y="722" class="t" font-weight="700">threat_intelligence_server</text>
+  <text x="573" y="744" class="t">5 个工具：get_threat_framework 等</text>
+  <text x="573" y="764" class="t">threat_repository.yaml：5 战术 / 17 技术</text>
+  <text x="573" y="784" class="t">编号 ADR.T0001–T0017，含 detection_guidance</text>
+  <text x="573" y="806" class="s">threat_repository_eas.yaml 在代码中零引用</text>
+  <rect class="box" x="1057" y="694" width="463" height="130"/>
+  <text x="1073" y="722" class="t" font-weight="700">policy_store_server</text>
+  <text x="1073" y="744" class="t">5 个工具：get_policies、assess_policy_violations 等</text>
+  <text x="1073" y="764" class="t">policy_store.yaml：12 条企业策略、12 类别</text>
+  <text x="1073" y="784" class="t">risk_areas 从策略字段动态汇总</text>
+  <text x="1073" y="806" class="s">由 ReasoningAgent 按 *_server.py glob 自动发现</text>
+
+  <!-- key numbers -->
+  <text x="40" y="864" class="h2">关键数字与口径</text>
+  <g>
+    <rect class="chip" x="40" y="882" width="233" height="64"/><text x="56" y="906" class="t">Unicode 置信分档</text><text x="56" y="926" class="s">tag 0.95 · override 0.9</text><text x="56" y="941" class="s">embed 0.85 · isolate 0.75</text>
+    <rect class="chip" x="288" y="882" width="233" height="64"/><text x="304" y="906" class="t">Tier-2 配置</text><text x="304" y="926" class="s">max_turns 60 · timeout 300 s</text><text x="304" y="941" class="s">max_tokens 10000</text>
+    <rect class="chip" x="536" y="882" width="233" height="64"/><text x="552" y="906" class="t">实测（macOS 本机）</text><text x="552" y="926" class="s">tests/ 227 passed</text><text x="552" y="941" class="s">py 3.12.13 · pytest 9.2.0</text>
+    <rect class="chip" x="784" y="882" width="233" height="64"/><text x="800" y="906" class="t">真机走私样本</text><text x="800" y="926" class="s">303 会话仅 task_110 命中</text><text x="800" y="941" class="s">转义字面量形式</text>
+    <rect class="chip" x="1032" y="882" width="233" height="64"/><text x="1048" y="906" class="t">消息保真缺口</text><text x="1048" y="926" class="s">主管线丢 message_type</text><text x="1048" y="941" class="s">/ tool_calls 字段</text>
+    <rect class="chip" x="1280" y="882" width="240" height="64"/><text x="1296" y="906" class="t">测试规模</text><text x="1296" y="926" class="s">12 文件 · 162 函数</text><text x="1296" y="941" class="s">227 收集项</text>
+  </g>
+
+  <!-- trust boundary -->
+  <rect class="stage1" x="40" y="974" width="1480" height="76"/>
+  <text x="56" y="1002" class="t" font-weight="700">信任槽纪律：解码后的攻击者文本只进日志与 debug 工件，不进 Tier-2 提示词</text>
+  <text x="56" y="1026" class="t">reason（rich）↔ prompt_reason（脱敏）双字段分离；结构化合同的 Tier-2 交接只含验证过的字段 + 语法白名单内的 MCP 名单</text>
+
+  <text x="40" y="1086" class="s">图中流程与数字仅作速查，以正文为准。 · 图源：detector/assets/cheat-sheet.svg</text>
+</svg>

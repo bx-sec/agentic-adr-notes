@@ -14,6 +14,10 @@ Sensor 概览图。图中流程与数字仅作速查，具体口径以 [sensor/s
 
 ADR-Bench 概览图。图中流程与数字仅作速查，具体口径以 [bench/source-notes.md](bench/source-notes.md) 正文和附录 B 的证据索引为准。
 
+![Detector 组件概览](detector/assets/cheat-sheet.png)
+
+Detector 概览图。图中流程与数字仅作速查，具体口径以 [detector/source-notes.md](detector/source-notes.md) 正文和附录 B 的证据索引为准。
+
 ## 内容
 
 | 组件 | 笔记 | 覆盖范围 |
@@ -21,6 +25,7 @@ ADR-Bench 概览图。图中流程与数字仅作速查，具体口径以 [bench
 | Discovery | [discovery/source-notes.md](discovery/source-notes.md) | 18 类 Kind、37 条 catalog、M1–M7 七个阶段、判定层、Coverage、脱敏、三平台实现、实测、测试覆盖 |
 | Sensor | [sensor/source-notes.md](sensor/source-notes.md) | 11 个代理平台、AgentEvent 统一 schema、BaseParser 架构、AgentObserver 编排、OTLP 导出、诊断健康、正反例测试方法集 |
 | ADR-Bench | [bench/source-notes.md](bench/source-notes.md) | 304 任务、134 服务器、17 类威胁、执行器与打包格式、真值与指标、AgentDojo 集成、正反例测试方法集 |
+| Detector | [detector/source-notes.md](detector/source-notes.md) | 三段式判定、Tier-1 高召回解析、Unicode 预检、Tier-2 Claude CLI 双代理、context provider、结构化路由合同、消息保真缺口、两个基线、正反例测试方法集 |
 
 ## 版本锚定
 
@@ -31,7 +36,8 @@ ADR-Bench 概览图。图中流程与数字仅作速查，具体口径以 [bench
 | catalog | `2026.10.12` |
 | schema | `1.2`（Discovery）；AgentEvent schema（Sensor） |
 | tasks | 304 条（261 benign / 43 malicious），`Detection/tasks.json` |
-| Python | 3.11+（Discovery）；3.9–3.13（Sensor）；3.10–3.12（Bench） |
+| Python | 3.11+（Discovery）；3.9–3.13（Sensor）；3.10–3.12（Bench、Detector） |
+| 判定模型 | triage `gpt-4o`；reasoning `claude-sonnet-4-6`（Claude CLI）；基线 llamafirewall（`gpt-4o-mini`）、jev（`~typesafe/jev-latest`），`config_detector.yaml` |
 
 ## 说明
 
@@ -43,9 +49,9 @@ ADR-Bench 概览图。图中流程与数字仅作速查，具体口径以 [bench
 
 ## 范围
 
-Discovery、Sensor、ADR-Bench 已完成。Detection 的检测器部分尚未开始。
+Discovery、Sensor、ADR-Bench、Detector 已完成。
 
-Bench 的实测数据来自 macOS 单机，依赖仓库自带的打包产物（`adr_bench_20251017_151604.jsonl`），未执行需要 API key 的端到端运行；涉及执行层的结论以代码路径和单元测试为依据，已在 `bench/source-notes.md` 附录 C 标注。
+Bench 与 Detector 的实测数据来自 macOS 单机，依赖仓库自带的打包产物（`adr_bench_20251017_151604.jsonl`），未执行需要 API key 的端到端运行；涉及执行层与判定质量的结论以代码路径和单元测试为依据，已在 `bench/source-notes.md` 与 `detector/source-notes.md` 附录 C 标注。
 
 引用请注明出处。
 
