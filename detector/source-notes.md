@@ -78,7 +78,7 @@ Detection 在 ADR 项目中承担**威胁检测与检测效果评测**（代码�
 | 维度 | ADR-Bench | Detection |
 |---|---|---|
 | 输入 | `tasks.json` + fixture + Claude CLI 执行 | run 目录里已录好的 `claude_conversation.json` |
-| 是否产生真实副作用 | 是（真执行工具调用） | 不重新执行被检测会话中的工具操作（纯离线分析）；Tier-2 的 MCP provider 为只读接口，且 Claude CLI 禁了三类写文件工具——但子进程仍可用 Bash 等未禁用的工具，不能据此认定整个 Tier-2 执行环境完全无副作用（见 [4.1.4](#414-tier-2-reasoning把-claude-cli-当判定引擎)、[6.5](#65-设计权衡)） |
+| 是否产生真实副作用 | 是（真执行工具调用） | 不重新执行被检测会话中的原始工具操作，属于基于已录制会话的事后分析；但 Tier-2 仍调用外部模型服务（Claude CLI → Anthropic）并经 MCP 使用上下文 provider——provider 为只读接口，且 Claude CLI 禁了三类写文件工具，但子进程仍可用 Bash 等未禁用的工具，不能据此认定整个 Tier-2 执行环境完全无副作用（见 [4.1.4](#414-tier-2-reasoning把-claude-cli-当判定引擎)、[6.5](#65-设计权衡)） |
 | 真值 | 定义（`tasks.json` 的 `ground_truth`） | 消费同一真值算混淆矩阵 |
 | 产出 | 会话目录 + 打包 JSONL | `*_baseline_analysis*.json` + 指标 |
 
@@ -255,7 +255,7 @@ run 目录 → task_dirs 过滤（task_* 且排除 *_agentdojo_run）
 |---|---|---|
 | 分类解析 | 只有「出现 benign 且不出现 suspicious」才判 BENIGN，其余一律 SUSPICIOUS（`_parse_triage_result`） | 模型输出含糊、格式跑偏、甚至空白都判可疑 |
 | confidence 解析 | 逐行正则只匹配独立 `confidence:` 字段，默认值 0.8；`xx%` 且 ≥1 时按百分数除以 100 | 「REASONING: low confidence…」这类旁支文本不会污染置信度 |
-| 异常处理 | API 调用抛任何异常 → 返回 `is_suspicious=True, confidence=0.9` | 「挂了也算可疑」，漏报只可能来自模型明确说 BENIGN |
+| 异常处理 | API 调用抛任何异常 → 返回 `is_suspicious=True, confidence=0.9` | 「挂了也算可疑」；Tier-1 路径内的漏报风险主要来自模型明确输出 BENIGN——整个管线仍有 Tier-2 判定错误与框架异常兜底（[3.2](#32-编排数据流) 细节 1）等其他漏报路径 |
 
 prompt 有两版（ADR-Bench 版 vs AgentDojo 版），升级条件不同，即 [2.3](#23-恶意的定义与判定标准) 表格中的判定契约。
 
@@ -322,6 +322,7 @@ cmd = [
 - 配置按消息角色映射扫描器：USER→PromptGuard（越狱检测）、ASSISTANT→AlignmentCheck（对齐检测）、TOOL→空（`config_detector.yaml` 的 `scanners` 段）。对齐扫描器被 monkey-patch：默认打分到 BLOCK 的阈值被改为 **score ≥ 0.8**（`_patch_alignment_scanner`），注释未解释原因，属于调过的判定阈值。
 - 逐消息扫描，首个 `ScanDecision.BLOCK` 即停（`analyze_conversation`）；任一消息 BLOCK → 会话判 malicious（`is_malicious = threat_count > 0`）。
 - 被编排层硬编码为串行：`max_concurrent=1`，与 `--concurrent` 参数无关（`main_detector.py:891-894`）。库缺失时 `LLAMAFIREWALL_AVAILABLE=False`，detector 不可用但 import 不炸。
+- 初始化依赖 `OPENAI_API_KEY`：`_initialize_firewall` 直接检查该环境变量，缺失则无法初始化；`OpenAIAlignmentScanner` 的 `LLMClient` 亦以 `api_key_env_var="OPENAI_API_KEY"` 取 key。默认模型 `gpt-4o-mini`，可经 `OPENAI_BASE_URL` 配置兼容服务地址。
 - 恶意语义与 ADRBaseline 完全不同：不看工具行为与真值契约，只看逐消息扫描器的判定。
 
 ### 4.3 Jev 基线
@@ -339,7 +340,7 @@ cmd = [
 |---|---|---|---|
 | 判定单位 | 全会话三段式（预检 → triage → reasoning） | 逐消息，首个 BLOCK 即停 | 全会话单次决策 API |
 | 恶意语义 | 按 benchmark 分版契约（[2.3](#23-恶意的定义与判定标准)） | 任一消息 BLOCK（score≥0.8）即会话恶意 | 三条件取或（0.5 阈值） |
-| 外部依赖 | `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` + Claude CLI | `llamafirewall` 包（gpt-4o-mini） | `JEV_API_KEY`/`OPENROUTER_API_KEY` |
+| 外部依赖 | `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` + Claude CLI | `llamafirewall` 包 + `OPENAI_API_KEY`（gpt-4o-mini） | `JEV_API_KEY`/`OPENROUTER_API_KEY` |
 | 上下文供给 | 3 个 MCP provider、16 工具（运行时拉源码/威胁框架/策略） | 无（消息原文过扫描器） | state 打包（工具清单、注入关键词、硬编码策略 3 条） |
 | 并发 | Semaphore（config 5 / 兜底 10） | 强制串行 `max_concurrent=1` | 同框架并发 |
 | 测试覆盖 | 88 个测试函数（47+41，跨两个测试文件），覆盖 triage/预检/信任槽/合同一致性 | **无专属测试** | 5 个函数 |
@@ -410,7 +411,7 @@ Detection 运行时消费的全部资产（规模为逐项清点的统计数据�
 
 - **不是在线防护**。它是基于已录制会话的事后批处理评测器，输入必须是 Bench/AgentDojo 的 run 目录；没有 Prevention 的拦截语义，判定不回流到执行层。
 - **框架层不定义威胁判定标准**。ADRBaseline 的「检测能力」就是 prompt + 上下文供给；关掉三个 context provider（消融）后 Tier-2 只剩 transcript 和 triage 摘要。框架的异常兜底会在检测器执行异常时判良性（[3.2](#32-编排数据流) 细节 1），同样参与最终结果。
-- **ADRBaseline 离不开三件套**：`OPENAI_API_KEY`（triage）、`ANTHROPIC_API_KEY` + Claude CLI 在 PATH（reasoning）。缺一即退出（`main_detector.py::main` 的 `is_available` 检查）。不使用这两类凭据做独立验证时，可用另外两个检测器：llamafirewall 仍需安装 `llamafirewall` 包及其自身模型服务配置（`gpt-4o-mini`），jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`——两者各自仍需 API Key，并非完全免凭据运行。
+- **ADRBaseline 离不开三件套**：`OPENAI_API_KEY`（triage）、`ANTHROPIC_API_KEY` + Claude CLI 在 PATH（reasoning）。缺一即退出（`main_detector.py::main` 的 `is_available` 检查）。换用其他检测器可以减少对 ADRBaseline 完整依赖链的要求，但**不意味着免除模型服务凭据**：llamafirewall 不需要 Anthropic 凭据与 Claude CLI，但仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`，可经 `OPENAI_BASE_URL` 配兼容服务）且要安装 `llamafirewall` 包；jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`。
 - **AgentDojo 模式不能复用 ADR-Bench 的真值口径**。两种模式的真值来源与目录布局被 `validate_benchmark_results_dir` 强制互斥（见 [2.4](#24-真值来源)）。
 
 ### 6.3 ADRBaseline 自身的注入面
@@ -446,7 +447,7 @@ Tier-1 的「歧义即升级、错误即升级」加上 Tier-2 的固定话术�
 
 - **必须在 `Detection/` 目录下运行**（CWD 依赖：`tasks.json`、`config_detector.yaml`）；否则真值加载直接失败（见 [2.4](#24-真值来源)）。
 - **`mcp` 依赖须 `<2`**：仓库 `pyproject.toml` 声明 `mcp>=1.0.0`，当前 PyPI 的 mcp 2.x 已移除 `mcp.server.fastmcp`，须 pin `<2` 才能加载 context provider——这是上游 README 未提的复现坑。
-- **API key**：ADRBaseline 需 `OPENAI_API_KEY` + `ANTHROPIC_API_KEY`（且 Claude CLI 在 PATH）；不依赖这两类凭据的冒烟用 llamafirewall 或 jev（各自仍需自身凭据，见 [6.2](#62-不能做什么)）。
+- **API key**：ADRBaseline 需 `OPENAI_API_KEY` + `ANTHROPIC_API_KEY`（且 Claude CLI 在 PATH）。换用其他检测器可减少依赖链但不免除模型服务凭据：llamafirewall 仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`），jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`（见 [6.2](#62-不能做什么)）。
 - **端到端判定依赖外部模型服务**：triage/reasoning/llamafirewall/jev 的结果都不可字节级复现，`run_manifest` 只保证输入与配置可对回。
 - **Claude CLI 版本未 pin**：`_invoke_claude_reasoning` 解析的 stdout JSON 结构（`subtype`/`is_error`/`usage`）随 CLI 版本可能漂移，仓库只 lock 了 Python 依赖。
 - **304 任务定义 vs 303 会话**：`task_304` 永远 dropped（与 Bench 笔记 1.5 节同一事实的 detector 侧表现）。
@@ -556,7 +557,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | # | 结论 | 证据来源 |
 |---|---|---|
 | C1 | ADRBaseline 判定是「确定性预检 → 保守升级 triage → reasoning 复核」三段式，成本逐级上升（高召回/高精度为设计目标，实际效果取决于模型与输入）；这是 ADRBaseline 的结构，不代表全部三个检测器 | `adr_baseline.py:249-454`；README「Part 2」（外部） |
-| C2 | Tier-1 保守升级策略由解析器硬编码实现：歧义/异常/空白一律 SUSPICIOUS，仅「benign 且无 suspicious」放行；实际召回率仍取决于模型判断与输入数据（漏报可能来自模型明确输出 BENIGN） | `adr_baseline.py:587-614`、`:505-514` |
+| C2 | Tier-1 保守升级策略由解析器硬编码实现：歧义/异常/空白一律 SUSPICIOUS，仅「benign 且无 suspicious」放行；实际召回率仍取决于模型判断与输入数据（Tier-1 路径内的漏报主要来自模型明确输出 BENIGN；管线仍有 Tier-2 判定错误与框架兜底等漏报路径） | `adr_baseline.py:587-614`、`:505-514` |
 | C3 | 确定性 Unicode 预检无条件运行，`enable_triage=false` 也不跳过（PR #43 修正） | `adr_baseline.py:314-323` 注释与实现 |
 | C4 | 打包基准中走私 payload 以转义字面量存储，过滤器靠转义正则才命中；303 会话实测仅 task_110 命中（override 2 / embed 2 / isolate 4，置信 0.9） | `adr_baseline.py:60-77` 注释；本机实测（7.2 节） |
 | C5 | 解码后的攻击者文本只进日志与 debug 工件，不进 Tier-2 提示词；该纪律有测试断言 | `adr_baseline.py:146-168`、`:1297`；`test_adr_baseline.py` |

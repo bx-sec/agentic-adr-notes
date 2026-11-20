@@ -67,8 +67,8 @@
     <rect class="stage2" x="925" y="215" width="250" height="176"/>
     <text x="941" y="238" class="t" font-weight="700">③ Tier-2 Reasoning Agent</text>
     <text x="941" y="259" class="mono">claude-sonnet-4-6 · Claude CLI</text>
-    <text x="941" y="281" class="t">子进程 + .mcp.json 挂 3 个</text>
-    <text x="941" y="301" class="t">context provider；禁写类工具</text>
+    <text x="941" y="281" class="t">子进程 + .mcp.json 挂 3 provider</text>
+    <text x="941" y="301" class="t">禁 3 类文件编辑工具；Bash 可用</text>
     <text x="941" y="321" class="t">拒答 → 紧凑 prompt 重试一次</text>
     <text x="941" y="341" class="t">输出 {"is_threat": …} JSON</text>
     <text x="941" y="361" class="s">ADR-Bench：工具恶意即全会话恶意</text>
