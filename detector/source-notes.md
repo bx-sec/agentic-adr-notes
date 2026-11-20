@@ -6,7 +6,7 @@
 
 概览图。图中流程与数字仅作速查，具体口径以本文正文和附录 B 的证据索引为准。
 
-Detection 不是单一 detector，而是「检测评测框架 + 三个可插拔检测器 + Tier-2 上下文供给 + 溯源与指标」的合集。本文按检测问题组织：先讲 Detection 要检测什么威胁、输入是什么、恶意如何定义、真值从哪来，再看评测框架与检测器怎么分工，然后逐个分析检测器的实现与策略差异，最后是评测机制、能力边界与复现验证。源码实现细节用于解释和证明检测机制，而非替代问题分析。
+Detection 不是单一 detector，而是「检测评测框架 + 三个可插拔检测器 + Tier-2 上下文供给 + 溯源与指标」的合集。本文按检测问题组织：先讲 Detection 要检测什么威胁、输入是什么、恶意如何定义、真值从哪来，再看评测框架与检测器怎么分工，然后逐个分析检测器的实现与策略差异，最后是评测机制、能力边界与复现验证。源码实现细节用于解释和证明检测机制，而非替代问题分析。全文最重要的读码发现是框架与检测器之间的保真缺口（见 [3.4](#34-框架与检测器之间的保真缺口)）：主管线消息转换丢弃结构字段，导致 Tier-2 格式化器的工具链接分支不可达；关键结论清单见附录 B。
 
 ## 目录
 
@@ -128,7 +128,11 @@ Detection 要检测的对象是 **agent 会话中的恶意行为**，重点场�
 | ADR-Bench | run 目录 `task_*/workspace/claude_conversation.json`（由 Bench 打包产物 inflate 而来） | 每条消息带 `message_type`（user_prompt / agent_response / tool_calling / tool_result）与 `tool_calls` 字段 |
 | AgentDojo | run 目录 + `ground_truth.json` | 目录布局与 ADR-Bench 互斥校验 |
 
-规模口径（实测清点，见 [7.2](#72-实测macos本机)）：打包产物 303 条会话、19,224 条消息，分布 user_prompt 303 / agent_response 1,378 / tool_calling 9,431 / tool_result 8,112；单会话消息数 min/median/max = 5/55/205。
+规模口径（实测清点，见 [7.2](#72-实测macos本机)）：打包产物 303 条会话、19,224 条消息，分布 user_prompt 303 / agent_response 1,378 / tool_calling 9,431 / tool_result 8,112；单会话消息数 min/median/max = 5/55/205。数据均为开源仓库自带（`tasks.json` 与打包基准产物随 `Detection/` 分发），「实测清点」指下载后本机逐项统计，非本地运行 Bench 生成。
+
+![消息分布](assets/messages.png)
+
+消息分布图。tool 类消息占九成以上，工具调用与工具结果是会话的主体；数字与上文清点口径一致。
 
 另一个容易被忽略的输入：真值加载时把每任务的 `mcp_servers` 元数据存进 task_definitions，分析单任务时以 **system 消息**插到消息列表头部（`main_detector.py::_analyze_task_async`）。这条消息既是 Tier-1 prompt 的一部分，也是结构化合同提取「可信 MCP 名单」的唯一来源。
 
@@ -225,6 +229,10 @@ run 目录 → task_dirs 过滤（task_* 且排除 *_agentdojo_run）
 1. **确定性预检**（零成本）：正则扫 Unicode 隐写字符，命中直接升级，不再花 LLM 调用（`adr_baseline.py::_analyze_messages` 的注释明说是「free, zero-latency structural check」）。
 2. **Tier-1 Triage LLM**（每次会话一次 `gpt-4o` 调用）：按保守升级策略筛选（设计目标为高召回），判 BENIGN 的走 fast path 直接放行，判 SUSPICIOUS 的升级；实际召回率仍取决于模型判断与输入数据，见 [4.1.2](#412-tier-1-triage保守升级策略写进解析器)。
 3. **Tier-2 Reasoning Agent**（Claude CLI 子进程 + MCP 工具调用）：设计目标为高精度复核，只有升级的会话才付这个成本；「高精度」是设计目标而非已验证效果，本笔记未做端到端验证。
+
+![ADRBaseline 三段式判定](assets/pipeline.png)
+
+三段式判定流程图。图中升级条件与成本分层是设计意图的代码化呈现，判定契约细节以 4.1.2、4.1.4 与正文为准。
 
 三段式是设计意图的代码化。论文 Table 2 报告 ADR 检测器 100% precision / 67% recall / 0 FP（README「Paper results」节转述，**外部证据**；本笔记未做端到端复现，见 [7.3](#73-未实测范围) 与附录 C），但这是特定数据集上的整体结果，与逐阶段机制之间没有消融实验或分阶段统计支撑因果联系。可以把三段式读作支撑该结果的设计机制——Tier-1 保守升级（实现事实，[4.1.2](#412-tier-1-triage保守升级策略写进解析器)）把难例全部推向 Tier-2，Tier-2 判定契约（设计意图，[4.1.4](#414-tier-2-reasoning把-claude-cli-当判定引擎)）承担精度压力——但「0 FP 由哪一层买到」属于推测，不是已验证结论。
 
@@ -355,7 +363,7 @@ cmd = [
 
 ### 5.1 评测数据与输入资产清单
 
-Detection 运行时消费的全部资产（规模为逐项清点的统计数据）：
+Detection 运行时消费的全部资产（规模为逐项清点的统计数据；资产本身均为开源仓库自带、随 `Detection/` 分发，口径见 [2.2](#22-检测对象与输入数据)）：
 
 | 资产 | 位置 | 规模 | 用途 | 证据类型 |
 |---|---|---|---|---|
