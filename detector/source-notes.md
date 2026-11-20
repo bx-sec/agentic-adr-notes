@@ -177,7 +177,7 @@ Detection 内部先做一次职责切分：**评测框架不定义具体的威�
 | 检测器 | `guardrail/llamafirewall_agent/` | LlamaFirewall 基线 |
 | 检测器 | `guardrail/jev_agent/` | Jev 基线（README 未提及） |
 | 上下文供给 | `context_providers/` | 3 个 FastMCP server、16 个工具（服务 ADRBaseline Tier-2，非模块共有） |
-| 测试 | `tests/` | 12 文件、162 函数、227 收集项 |
+| 测试 | `tests/` | 14 文件、191 函数、227 收集项（含参数化展开） |
 
 ### 3.2 编排数据流
 
@@ -491,7 +491,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 
 ### 7.4 测试方法集
 
-测试共 12 个文件、162 个测试函数、227 个收集项（部分参数化），快照 `6b33dff`。分层归纳：
+测试共 14 个文件、191 个测试函数、227 个收集项（收集项含参数化展开，与函数数是两个口径），快照 `6b33dff`。分层归纳：检测器与 provider 侧 11 个文件 162 个函数；Bench 执行器与打包侧 3 个文件（`test_main_benchmark.py`、`test_benchmark_pack.py`、`test_packaging.py`）29 个函数——它们测的是 `Detection/` 内的执行器与打包脚本，与 Detector 共用同一测试目录与套件：
 
 | 文件 | 函数数 | 覆盖对象 |
 |---|---|---|
@@ -504,6 +504,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | `test_jev_baseline.py` | 5 | 初始化、无 key 不可用、判定 |
 | `test_run_manifest_integration.py` | 5 | 端到端 digest 一致性、analyzer 复用不串 hash |
 | `test_openai_config.py` / `test_base_detector.py` / `test_policy_store.py` | 4 / 3 / 1 | 费率计算、异常兜底、YAML 加载 |
+| `test_main_benchmark.py` / `test_benchmark_pack.py` / `test_packaging.py` | 24 / 4 / 1 | Bench 侧执行器与打包：timeout 杀进程（含孙进程）、tool_result 提取与 Unicode 保真、inflate/pack/manifest |
 
 **L1 正例（该发生的发生了）**：最有分量的一条是 `test_detects_real_task_110_transcript_from_packed_benchmark`——该用例直接加载基准数据中的 task_110 会话，验证 Unicode 预检能够识别其中以转义字面量形式存储的走私 payload。它证明了**当前打包数据表示下的转义匹配路径**有效（[7.2](#72-实测macos本机) 实测证实该会话不含真实 bidi 控制码点），但不能等同于对实际 bidi 控制码点攻击的端到端检测验证——正好钉住 [4.1.1](#411-确定性-unicode-混淆预检) 的第二个细节。拒答重试路径、`[TOOL_USE: …]` 解析、triage 百分比置信度等解析行为均有直接断言。
 
@@ -551,7 +552,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | 源码 provider | `context_providers/source_code_analyzer_server.py:54-55`（24 文件/240KB）、`:58`/`:68`（路径越界防护）、`:279`（bundle 收集）、`:365`（get_source_code） |
 | 威胁 provider | `context_providers/threat_intelligence_server.py:20`、`:49-171`（5 工具）、`:27-28`（只加载 threat_repository.yaml） |
 | 策略 provider | `context_providers/policy_store_server.py:20`、`:42-128`（5 工具） |
-| 测试 | `tests/`（12 文件 162 函数；关键：`test_adr_baseline.py` 的 task_110 真机用例、`test_structured_risk_route_triage.py` 的一致性反例、`test_run_manifest_integration.py` 的 digest 端到端） |
+| 测试 | `tests/`（14 文件 191 函数；关键：`test_adr_baseline.py` 的 task_110 基准会话用例、`test_structured_risk_route_triage.py` 的一致性反例、`test_run_manifest_integration.py` 的 digest 端到端） |
 
 ## 附录 B 关键技术结论及证据索引
 
