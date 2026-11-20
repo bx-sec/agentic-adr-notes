@@ -49,7 +49,7 @@
 
 ### 1.1 18 类 Kind
 
-`contracts/records.py::Kind` 是封闭枚举，注释写明：没有枚举成员的类别无法被上报。
+`contracts/records.py::Kind` 是封闭枚举。注释写明：没有枚举成员的类别无法被上报。
 
 ```python
 class Kind(str, Enum):
@@ -82,7 +82,7 @@ class Kind(str, Enum):
 | 扩展面 | `extension` `mcp_server` `mcp_bundle` `skill` `command` `plugin` `output_style` `agent_definition` `hook` `instructions` |
 | 远端 | `ci_agent` `cloud_agent` `agent_platform` |
 
-`instructions` 没有可执行代码，但决定 agent 的行为边界，同样计入资产。
+`instructions` 没有可执行代码，但决定 agent 的行为边界。它同样计入资产。
 
 ### 1.2 6 类证据通道与九个入口
 
@@ -152,7 +152,7 @@ class Channel(str, Enum):
 | 36 | `open-webui` | Open WebUI | `app` | Open WebUI | packages | - |
 | 37 | `arc` | Arc | `ai_browser` | The Browser Company | bundle_ids | - |
 
-不在表内的产品只能靠 M4 开放世界评分进 `review_queue`，否则不被发现。
+不在表内的产品只能靠 M4 开放世界评分进 `review_queue`。否则不被发现。
 
 指纹键 9 种，全量使用次数：`binaries` 16、`packages` 15、`bundle_ids` 14、`state_dirs` 13、`desktop_ids` 8、`extension_ids` 6、`ports` 2、`model_dirs` 1、`install_layouts` 1。
 
@@ -191,7 +191,7 @@ SURFACES = (
 )
 ```
 
-第四列为是否需要 manifest：
+第四列表示是否需要 manifest：
 
 ```python
 MANIFESTS = {
@@ -201,7 +201,7 @@ MANIFESTS = {
 }
 ```
 
-`plugins` 有 4 个候选路径，对应 Claude / Codex / Cursor 三种宿主的 manifest 位置。
+`plugins` 有 4 个候选路径。它们对应 Claude / Codex / Cursor 三种宿主的 manifest 位置。
 
 ### 1.5 Asset 字段
 
@@ -238,7 +238,7 @@ CONCLUSIVE_RUNGS = frozenset({Rung.PROVENANCE, Rung.CONTENT})
 
 `CONCLUSIVE_RUNGS` 只有两级。`convention` 只提高优先级，不单独确认身份。
 
-`~/.claude/skills/foo/SKILL.md` 这种路径形状任何程序都能造出来，叫 `claude` 的可执行文件也可能是改名而来。只有包管理器记录、已知 hash、模型文件头这类证据才进入 `CONCLUSIVE_RUNGS`。
+`~/.claude/skills/foo/SKILL.md` 这种路径形状任何程序都能造出来。叫 `claude` 的可执行文件也可能是改名而来。只有包管理器记录、已知 hash、模型文件头这类证据才进入 `CONCLUSIVE_RUNGS`。
 
 置信分档按独立 channel 数：
 
@@ -271,7 +271,7 @@ M7 report        → Snapshot
 
 阶段间只通过 `contracts/` 的 dataclass 传递，无共享可变状态。例外是 `Ledger`，它贯穿全程并在最后 freeze 成 `Coverage`。
 
-`pipeline.py` 写成函数而非 class：每阶段输入输出都是不可变元组，没有实例状态需要维护。
+`pipeline.py` 写成函数而非 class。每阶段输入输出都是不可变元组，没有实例状态需要维护。
 
 ### 2.2 Budget 字段
 
@@ -293,7 +293,7 @@ M7 report        → Snapshot
 | `max_tree_file_bytes` | 20 MiB | 目录树单文件上限 |
 | `max_tree_bytes` | 100 MiB | 目录树总量上限 |
 
-Budget 全局共享，不是每个 probe 独立限额。一个 probe 耗尽额度后，后续 probe 空手而归，不报错，只在 `coverage.boundaries_hit` 记一条 `budget_exhausted`。
+Budget 全局共享，不是每个 probe 独立限额。一个 probe 耗尽额度后，后续 probe 空手而归。扫描不报错，只在 `coverage.boundaries_hit` 记一条 `budget_exhausted`。
 
 ### 2.3 M2 Enumerate
 
@@ -494,7 +494,7 @@ def in_scope(path: str, include_dependency_caches: bool = False) -> bool:
     return include_dependency_caches or not any(seg in path for seg in DEPENDENCY_CACHES)
 ```
 
-`include_dependency_caches` 由 `--resolve` 打开，追依赖树时必须进 `node_modules`。
+`include_dependency_caches` 由 `--resolve` 打开。追依赖树时必须进 `node_modules`。
 
 #### 2.3.5 配置文件模板 26 条
 
@@ -514,7 +514,7 @@ def in_scope(path: str, include_dependency_caches: bool = False) -> bool:
 | shell | 2 | `~/.bashrc`、`~/.zshrc` |
 | 企业托管 | 4 | `/etc/claude-code/managed-settings.json`、`/Library/Application Support/ClaudeCode/managed-settings.json`、`/Library/Application Support/ClaudeCode/managed-mcp.json`、`/etc/adr/managed-mcp.json` |
 
-shell profile 里可能有 `export ANTHROPIC_API_KEY=...`（凭据暴露面）和 `alias claude=...`（资产伪装）。
+shell profile 里可能有两类内容。`export ANTHROPIC_API_KEY=...` 是凭据暴露面。`alias claude=...` 是资产伪装。
 
 ### 2.4 M3 Extract
 
@@ -559,7 +559,7 @@ def _server_block(document: dict) -> dict:
 
 `RECORD_CAP = 500`。单个配置文件最多读 500 条记录，超出记 `truncated`。
 
-`isolate.py` 实现逐记录隔离：单条记录解析失败只跳过该条，整个文件不作废。500 行的 `settings.json` 里有一行写错，其余 30 个 MCP server 仍能读出来。
+`isolate.py` 实现逐记录隔离。单条记录解析失败只跳过该条，整个文件不作废。500 行的 `settings.json` 里有一行写错，其余 30 个 MCP server 仍能读出来。
 
 #### 2.4.4 四种格式
 
@@ -644,7 +644,7 @@ THRESHOLD = 0.40
 
 `network_intent` 是唯一的行为性证据：程序连 `api.anthropic.com`，不论名称都记录。
 
-阈值 0.40 要求单靠 `network_intent`（0.35）不足，至少叠加一个信号。只连过一次 AI 域名的程序包括浏览器、代理、监控 agent。
+阈值 0.40 意味着单靠 `network_intent`（0.35）不够，至少要叠加一个信号。只连过一次 AI 域名的程序包括浏览器、代理、监控 agent。
 
 达到阈值进 `review_queue`，不进 `assets`。`review_queue` 是待人工确认，不是已确认。
 
@@ -658,7 +658,7 @@ THRESHOLD = 0.40
 | 资产识别（M4） | `Observation`、`ReviewItem`，或丢弃 | `/Applications/WorkBuddy AI.app` 未结论，开放世界得分 0，无信号 |
 | 资产登记（M5、M7） | `assets` 里的 `Asset` | 该 app 不在 169 条资产里 |
 
-识别失败的候选，得分 ≥ 0.40 或命中 `network_intent` 才进 `review_queue`；两者都不满足就直接丢弃，`coverage` 不留记录，`snapshot` 里看不出它存在过。M4 循环里这类候选只有两种结局，进 `review_queue` 或什么都不做。
+识别失败的候选，得分 ≥ 0.40 或命中 `network_intent` 才进 `review_queue`。两者都不满足就直接丢弃。`coverage` 不留记录，`snapshot` 里看不出它存在过。M4 循环里这类候选只有两种结局：进 `review_queue` 或什么都不做。
 
 这个 app 的识别结果：
 
@@ -668,7 +668,7 @@ THRESHOLD = 0.40
 
 四元组依次是 kind、是否结论、开放世界得分、路径。`identify` 返回的证据只有一条 `filesystem / no conclusive evidence`。
 
-「没有出现在资产清单里」因此有三种可能：没有被枚举到、被枚举到但没有识别出来、识别出来但被合并进别的资产。三种在 `snapshot` 里结果相同。第一种有时能在 `coverage` 的 `denied` 与 `boundaries_hit` 里找到线索，后两种不留痕迹。
+「没有出现在资产清单里」因此有三种可能：没有被枚举到、被枚举到但没有识别出来、识别出来但被合并进别的资产。三种在 `snapshot` 里结果相同。第一种有时能在 `coverage` 的 `denied` 与 `boundaries_hit` 里找到线索。后两种不留痕迹。
 
 ### 2.6 M5 Resolve
 
@@ -688,7 +688,7 @@ content → realpath → inode → package → install → catalog → identity
 | `catalog` | 命中同一目录条目 | `catalog_id\|owner\|归一化 install_root` |
 | `identity` | 同 kind、同 identity、同 owner | `kind\|identity\|owner` |
 
-顺序决定尝试次序，不决定合并结果。每一次 `union` 都要过 2.6.1 的身份校验，键再硬也不能绕开。`content` 相同只说明字节相同，落在两个目录里的同一份文件、同一工具的两个安装实例、vendored 副本与发行版，都可能有相同字节。`test_u5_04` 断言内容合并成立时，两条观测的 identity 本来就是同一个；`test_u5_14` 断言同工具的两个安装实例保持两个资产。
+顺序决定尝试次序，不决定合并结果。每一次 `union` 都要过 2.6.1 的身份校验，键再硬也不能绕开。`content` 相同只说明字节相同。两个目录里的同一份文件、同一工具的两个安装实例、vendored 副本与发行版，都可能有相同字节。`test_u5_04` 断言内容合并成立时，两条观测的 identity 本来就是同一个。`test_u5_14` 断言同工具的两个安装实例保持两个资产。
 
 本机 1899 个候选在 7 个键上的实际分布：
 
@@ -702,15 +702,15 @@ content → realpath → inode → package → install → catalog → identity
 | `catalog` | 2 | 9 | 0 |
 | `identity` | 0 | 0 | 0 |
 
-`content` 键在本机 0 次触发，因为没有任何两条文件观测的 SHA-256 相同。`content_hash` 只对文件计算（`pipeline.py:248`），skill 目录走 `hash_tree` 进 `skill_sha256`，不参与这个键。这条键的行为只有测试覆盖，没有实测数据。
+`content` 键在本机 0 次触发，因为没有任何两条文件观测的 SHA-256 相同。`content_hash` 只对文件计算（`pipeline.py:248`）。skill 目录走 `hash_tree` 进 `skill_sha256`，不参与这个键。这条键的行为只有测试覆盖，没有实测数据。
 
 #### 2.6.1 identity guard
 
-union-find 存在桥接误并：A 与 B 通过一个观察合并，B 与 C 通过另一个观察合并，最终 A 与 C 被并成一个。
+union-find 存在桥接误并。A 与 B 通过一个观察合并，B 与 C 通过另一个观察合并，最终 A 与 C 被并成一个。
 
-`merge.py::_Groups.union` 在合并前检查合并后组内的 identity 集合，出现两个不同的 identity 字符串就返回 `False`。校验对象是字符串本身，与 kind 无关。
+`merge.py::_Groups.union` 在合并前检查合并后组内的 identity 集合。出现两个不同的 identity 字符串就返回 `False`。校验对象是字符串本身，与 kind 无关。
 
-合并过头的后果比漏合并严重。漏合并会看到重复项，容易被注意到；合并过头后总数正常，只是少了一个资产，不会被察觉。
+合并过头的后果比漏合并严重。漏合并会看到重复项，容易被注意到。合并过头后总数正常，只是少了一个资产，不会被察觉。
 
 本机的 50 次拒绝全部来自 `install` 键，分布在 13 个键组上：19 个观测一组拒绝 18 次，17 个一组拒绝 16 次，5 个一组拒绝 4 次，3 个一组两组各拒绝 2 次，2 个一组八组各拒绝 1 次。同一插件目录下的多个 skill 共享 `attribute_of`，锚点之外的每一个都被拒绝。冲突形态是锚点对多个兄弟节点，不是 A-B-C 的链式桥接。
 
@@ -837,11 +837,11 @@ def _may_be_judged(asset: Asset) -> bool:
     return bool(asset.catalog_id)
 ```
 
-MCP server 只要 `catalog_id` 非空，或 `confidence.label` 不是 `none`，就通过；其他类型必须有 `catalog_id`。
+MCP server 只要 `catalog_id` 非空，或 `confidence.label` 不是 `none`，就通过。其他类型必须有 `catalog_id`。
 
 本机 6 个 MCP server 的 `confidence.label` 都是 `low`，全部通过这道门槛。把门槛强制改成 `return True` 重跑，findings 仍然是 0。6.6 的 0 条 finding 与门槛无关，是六条规则各自的条件都没有满足。
 
-门槛拦下的是另一类对象：只有命令行形态、没有配置声明的进程。`findings.py` 的文件头记了两个已经付过代价的误报，其中 `npx eslint .` 被判成高危 MCP server，源码注释直接把这道门槛定义成「`npx eslint .` 过不了的那一条」。`test_u6_09` 断言这两个误报保持沉默。
+门槛拦下的是另一类对象：只有命令行形态、没有配置声明的进程。`findings.py` 的文件头记了两个已经付过代价的误报，其中 `npx eslint .` 被判成高危 MCP server。源码注释直接把这道门槛定义成「`npx eslint .` 过不了的那一条」。`test_u6_09` 断言这两个误报保持沉默。
 
 #### 2.7.7 sanction 四态
 
@@ -1002,7 +1002,7 @@ def explain():
 | 单子进程 5 秒 | `ps` / `lsof` 超时即放弃，不重试 |
 | hash 上限 1 GiB | 大模型文件不参与 content 判定 |
 
-`max_entries` 直接决定可见范围。实测从 12000 降到 3000，资产从 169 降到 58，MCP server 从 6 降到 1。该变化同时反映在 `boundaries_hit`（1879 降到 366）与 `denied`（149 降到 97），资产表本身看不出差别。
+`max_entries` 直接决定可见范围。实测从 12000 降到 3000，资产从 169 降到 58，MCP server 从 6 降到 1。该变化同时反映在 `boundaries_hit`（1879 降到 366）与 `denied`（149 降到 97）。资产表本身看不出差别。
 
 ### 3.4 边界条件
 
@@ -1023,7 +1023,7 @@ def explain():
 
 `world/platform/` 三个文件，均继承 `HostResolver` + `NullProviders`。
 
-三列的证据强度不同，读下面的表之前先看这张：
+三列的证据强度不同。读下面的表之前先看这张：
 
 | 平台 | 本机实跑 | 单元测试 | 未覆盖 |
 |---|---|---|---|
@@ -1040,7 +1040,7 @@ def explain():
 | 包管理 | brew Cellar | dpkg / apk / snap / flatpak / rpm | 无 |
 | DNS cache | 不可用 | resolvectl，仅暴露 counters | 无 |
 
-darwin 用 `lsof` 而非 `netstat`，因为 `lsof` 提供进程与连接的对应关系。`ps` 与 `lsof` 均走 `run_helper`，超时 5 秒。本机 `/bin/ps` 调用失败，darwin 的进程侧实现没有经过实跑，只经过源码与 `DarwinProviders` 用例。
+darwin 用 `lsof` 而非 `netstat`，因为 `lsof` 提供进程与连接的对应关系。`ps` 与 `lsof` 均走 `run_helper`，超时 5 秒。本机 `/bin/ps` 调用失败，darwin 的进程侧实现没有经过实跑。验证只来自源码与 `DarwinProviders` 用例。
 
 linux 直接读 `/proc`，比调命令快且不需额外权限。`/proc/net/tcp` 中地址为十六进制，需手工解析。resolvectl 只暴露 counters，因此 Linux 上 DNS cache 为 `unavailable`。
 
@@ -1102,7 +1102,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 
 耗时 24 秒，退出码 2。下文全部数字来自同一次运行。路径中的用户名替换为 `<user>`，主机名替换为 `<host>`。
 
-2026-11-10 用同样参数复跑，候选 1899、扫描前条目 1925、sockets 183、boundaries 1882，资产仍是 169。机器上增删过文件，过程计数跟着变，资产数不变。
+2026-11-10 用同样参数复跑：候选 1899、扫描前条目 1925、sockets 183、boundaries 1882。资产仍是 169。机器上增删过文件，过程计数跟着变，资产数不变。
 
 ### 6.2 CLI 输出原文
 
@@ -1278,9 +1278,9 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `content_hash` | `null` | 声明文件不参与内容 hash |
 | `running_versions` | `[]` | 无运行实例 |
 
-`pinned` 为 `null` 而非 `false`：该条目的 `command` 与 `args` 在 `.codex/config.toml` 中未给出可解析的包引用，pinning 判定返回未知。`unpinned_mcp_server` 规则要求 `pinned is False`，因此这条不触发。
+`pinned` 为 `null` 而非 `false`。该条目的 `command` 与 `args` 在 `.codex/config.toml` 中未给出可解析的包引用，pinning 判定返回未知。`unpinned_mcp_server` 规则要求 `pinned is False`，因此这条不触发。
 
-`env_names` 有 15 个但 `credential_kinds` 为空：这 15 个名字（`CODEX_HOME`、`NODE_REPL_NODE_PATH` 等）都不匹配 `redact.credential_kinds` 的凭据模式。凭据识别基于名称特征，不基于值的形态。
+`env_names` 有 15 个但 `credential_kinds` 为空。这 15 个名字（`CODEX_HOME`、`NODE_REPL_NODE_PATH` 等）都不匹配 `redact.credential_kinds` 的凭据模式。凭据识别基于名称特征，不基于值的形态。
 
 ### 6.5 coverage 原文
 
@@ -1301,7 +1301,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `entries` | 该根下实际读取的条目数 |
 | `depth_reached` | 到达的最大深度，上限 `max_depth = 12` |
 
-只有 4 个根扫完。`~/.codex` 占 2913 条，`~` 占 5846 条，两者合计 8759 条，接近 `max_entries` 的一半。
+只有 4 个根扫完。`~/.codex` 占 2913 条，`~` 占 5846 条，两者合计 8759 条。这个总量接近 `max_entries` 的一半。
 
 #### 6.5.2 denied
 
@@ -1342,7 +1342,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `fan_out` | 1 | 单目录子项超过 `max_children` |
 | `cache_dir` | 1 | 命中依赖缓存目录 |
 
-`cap 4927` 是当时的动态上限。1879 条里有 1877 条是预算耗尽，说明 `max_entries` 是主要瓶颈，不是深度或子项数。
+`cap 4927` 是当时的动态上限。1879 条里有 1877 条是预算耗尽。这说明 `max_entries` 是主要瓶颈，不是深度或子项数。
 
 #### 6.5.4 truncated
 
@@ -1415,7 +1415,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `~/.codex/plugins/cache/openai-primary-runtime/spreadsheets/26.1030.10813` | 3 | 2 |
 | 其余 8 组各 2 个观测 | 16 | 8 |
 
-每次拒绝挡住一次合并，放行后的资产数正好少 50：169 降到 119，MCP server 从 6 降到 2。数值对得上，机制不是 50 组资产两两并成一个，而是 13 个安装路径各有一个锚点，锚点之外的兄弟节点逐个被拒。插件目录下的多个 skill 共享同一个 `attribute_of`，这是 `install` 键对 skill 过粗的结果。
+每次拒绝挡住一次合并，放行后的资产数正好少 50：169 降到 119，MCP server 从 6 降到 2。数值对得上。机制不是 50 组资产两两并成一个，而是 13 个安装路径各有一个锚点。锚点之外的兄弟节点逐个被拒。插件目录下的多个 skill 共享同一个 `attribute_of`，这是 `install` 键对 skill 过粗的结果。
 
 `0 missing on disk` 表示 15 条插件安装记录对应的目录都还在，没有 stale 记录。
 
@@ -1509,7 +1509,7 @@ python3 -c "import sys; from adr_discovery.cli import main; sys.exit(main())" \
 | `github` | `unknown` | `null` | `http` | `third_party_destination` |
 | `Homebrew` | `forbidden` | `null` | `stdio` | `forbidden_asset` |
 
-`github` 的 `sanction` 是 `unknown` 而非 `forbidden`，它触发的规则是出站域名，不是授权状态。`transport` 为 `http`，但没有触发 `plaintext_transport`，因为该规则判定的是明文而非加密传输，`http` 需要配合非 TLS 端口才成立。
+`github` 的 `sanction` 是 `unknown` 而非 `forbidden`，它触发的规则是出站域名，不是授权状态。`transport` 为 `http`，但没有触发 `plaintext_transport`。因为该规则判定的是明文而非加密传输，`http` 需要配合非 TLS 端口才成立。
 
 policy 内容：
 
@@ -1526,7 +1526,7 @@ policy 内容：
 }
 ```
 
-未传 policy 时 findings 为 0。原因是六条规则各自的条件都没有满足，与 `_may_be_judged` 无关：6 个 MCP server 的 `confidence.label` 都是 `low`，都通过了门槛，把门槛强制改成 `return True` 重跑，结果仍是 0。
+未传 policy 时 findings 为 0。原因是六条规则各自的条件都没有满足，与 `_may_be_judged` 无关。6 个 MCP server 的 `confidence.label` 都是 `low`，都通过了门槛。把门槛强制改成 `return True` 重跑，结果仍是 0。
 
 逐个条件对照：
 
@@ -1558,7 +1558,7 @@ policy 内容：
 | `cli_agent` | 1 |
 | `extension` | 1 |
 
-1898 个候选收敛为 169 个资产，比例 11.2 比 1，收敛发生在 M5。
+1898 个候选收敛为 169 个资产，比例 11.2 比 1。收敛发生在 M5。
 
 预算对比，同一台机器、同一份目录：
 
@@ -1573,7 +1573,7 @@ policy 内容：
 
 ### 6.8 catalog 外产品
 
-`applications` 探针返回 73 条记录，`/Applications/WorkBuddy AI.app` 在其中。它作为 `application` 候选走完 M2，在 M4 没有识别出结论：`identify` 返回 `no conclusive evidence`，开放世界得分 0，没有信号，于是被丢弃，不进 `assets`，也不进 `review_queue`。这是 2.5.6 里的第二种去向。
+`applications` 探针返回 73 条记录，`/Applications/WorkBuddy AI.app` 在其中。它作为 `application` 候选走完 M2，在 M4 没有识别出结论。`identify` 返回 `no conclusive evidence`，开放世界得分 0，没有信号。于是它被丢弃，不进 `assets`，也不进 `review_queue`。这是 2.5.6 里的第二种去向。
 
 候选发现与资产登记是两件事。这个 app 已经被发现，只是没有通过识别。把它写成「没有被发现」会让读者以为枚举漏了这个目录。
 
@@ -1621,7 +1621,7 @@ policy 内容：
 | `install_path` | `/Applications/...` | 来自 LaunchServices |
 | `install_method` | `null` | 目录未声明 |
 
-`~/.workbuddy-ai/skills/` 下的 skill 在两次扫描中都被单独记录，因为目录名 `skills` 命中 `DIR_MARKERS`。当前 7 条，与这个 app 资产无关联，各自持有独立 `asset_id`。资产表中可见 app，不可见其携带的 skill 列表。
+`~/.workbuddy-ai/skills/` 下的 skill 在两次扫描中都被单独记录。原因是目录名 `skills` 命中 `DIR_MARKERS`。当前 7 条，与这个 app 资产无关联，各自持有独立 `asset_id`。资产表中可见 app，不可见其携带的 skill 列表。
 
 ### 6.9 diff
 
@@ -1656,13 +1656,13 @@ delta vs the previous snapshot of <host>
 | `delta vs the previous snapshot of <host>` | 跨主机时此行会变成错误，需 `--allow-cross-endpoint` |
 | `appeared beta` / `appeared loose` | 两条新增 |
 
-`loose` 的 finding 说明 `unpinned_mcp_server` 在 fixture 下能触发：`command` 为 `npx`，`args` 里是 `@acme/loose-mcp` 不带版本号，pinning 判定返回 `False`，与 `node_repl` 的 `null` 不同。
+`loose` 的 finding 说明 `unpinned_mcp_server` 在 fixture 下能触发。`command` 为 `npx`，`args` 里是 `@acme/loose-mcp` 不带版本号。pinning 判定返回 `False`，与 `node_repl` 的 `null` 不同。
 
 ## 七、测试覆盖
 
-`adr_discovery/tests_unit/` 有 42 个测试文件、474 个用例（参数化展开后），按 M1 到 M7 命名，例如 `test_u5_06_two_tools_sharing_a_root_do_not_merge`。本机执行 473 通过、1 跳过、0 失败，`test_traversal_budget.py` 单文件 433 秒。
+`adr_discovery/tests_unit/` 有 42 个测试文件、474 个用例（参数化展开后）。测试按 M1 到 M7 命名，例如 `test_u5_06_two_tools_sharing_a_root_do_not_merge`。本机执行 473 通过、1 跳过、0 失败，`test_traversal_budget.py` 单文件 433 秒。
 
-未覆盖的部分：Windows provider 没有任何用例，`WindowsProviders` 未出现在测试文件里；`--resolve` 只测了未传时的 unavailable，依赖树遍历本身没有用例；多用户只测到枚举层，没有多 owner 下的 asset_id 与合并用例。
+未覆盖的部分：Windows provider 没有任何用例，`WindowsProviders` 未出现在测试文件里。`--resolve` 只测了未传时的 unavailable，依赖树遍历本身没有用例。多用户只测到枚举层，没有多 owner 下的 asset_id 与合并用例。
 
 `tests/` 是另一套：黑盒保真度测量，用 120 条安装清单比对快照的 TP / FP / FN。Linux 与 macOS 有 guest driver 但未接 golden snapshot 自动恢复，Windows 没有 driver。
 
