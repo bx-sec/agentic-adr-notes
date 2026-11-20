@@ -14,7 +14,7 @@ Detection 不是单一 detector，而是「检测评测框架 + 三个可插拔�
   - [1.1 Detection 的职责与边界](#11-detection-的职责与边界)
   - [1.2 与其他 ADR 组件的关系](#12-与其他-adr-组件的关系)
   - [1.3 「五能力」是 README 声明口径，不是架构事实](#13-五能力是-readme-声明口径不是架构事实)
-  - [1.4 README 与代码的三个口径差异](#14-readme-与代码的三个口径差异)
+  - [1.4 README 与代码的四个口径差异](#14-readme-与代码的四个口径差异)
 - [二、检测问题](#二检测问题)
   - [2.1 检测目标：MCP 工具会话中的恶意行为](#21-检测目标mcp-工具会话中的恶意行为)
   - [2.2 检测对象与输入数据](#22-检测对象与输入数据)
@@ -96,13 +96,14 @@ ADR 的官方材料把项目描述为五项并列能力。这是**项目文档�
 | **检测威胁** | **ADR Detection** | **已开源** | **本文对象** |
 | 阻止不安全操作 | ADR Prevention | 未开源 | 无 |
 
-### 1.4 README 与代码的三个口径差异
+### 1.4 README 与代码的四个口径差异
 
-读码才能发现的三处，均以代码为准：
+读码才能发现的四处，均以代码为准：
 
 1. **jev 基线未写进 README**。Detection README 的 Code Structure 只列 `adr_agent/` 与 `llamafirewall_agent/`，Part 2 也只写 `adr` 与 `llamafirewall` 两个 detector；但 `main_detector.py::main` 的 `--detector` 参数是三选一（含 `jev`），`guardrail/jev_agent/` 是完整实现（README「Code Structure」节 vs `main_detector.py:832`、`guardrail/__init__.py`）。
 2. **`threat_repository_eas.yaml` 在代码中零引用**。文件存在于 `context_providers/data/`（29KB），但整个 `Detection/` 源码没有任何加载它的代码；`threat_intelligence_server.py::load_threat_data` 只加载 `threat_repository.yaml`。EAS 命名与 `main_detector.py` 输出后缀 `-woeas`（关闭 threat intelligence 消融）呼应，推测是论文某个变体的数据，仓库里是死资产。
 3. **并发默认值两处不一致**。CLI help 写「default: from config or 10」（代码兜底 10），而 `config_detector.yaml` 的 `detection.max_concurrent: 5`——实际默认取决于是否带配置文件运行。另外 llamafirewall 被硬编码成串行（`max_concurrent=1`），CLI 参数对它无效（`main_detector.py:891-894`）。
+4. **README 的「keyless smoke tests」与代码冲突**。Detection README 写「For keyless smoke tests, use `--detector llamafirewall`」，但 `_initialize_firewall` 直接检查 `OPENAI_API_KEY`（缺失则无法初始化），`OpenAIAlignmentScanner` 的 `LLMClient` 亦以 `api_key_env_var="OPENAI_API_KEY"` 取 key（`llamafirewall_baseline.py::_initialize_firewall` vs README 冒烟说明）。llamafirewall 免除的是 Anthropic 凭据与 Claude CLI，不是模型服务凭据；详见 [4.2](#42-llamafirewall-基线)、[6.2](#62-不能做什么)。
 
 ---
 
@@ -157,7 +158,7 @@ Detection 要检测的对象是 **agent 会话中的恶意行为**，重点场�
 - 两种模式的真值来源与目录布局被 `validate_benchmark_results_dir` 强制互斥：ADR-Bench 目录出现 `ground_truth.json` 报错，AgentDojo 目录缺该文件报错（`main_detector.py:647-663`）。
 - 真值缺失直接抛异常，无 fallback（`main_detector.py::_calculate_metrics`）。
 - ADR-Bench 模式必须**在 `Detection/` 目录下运行**，否则 CWD 真值加载直接 FileNotFoundError——这是复现操作的第一个坑，详见 [7.1](#71-关键配置与运行方式)。
-- 304 条任务定义 vs 303 条会话：`task_304` 缺会话文件，恒落进 dropped、不计入指标（见 [3.2](#32-编排数据流)，与 Bench 笔记 1.5 节同一事实的 detector 侧表现）。
+- `tasks.json` 定义 304 条任务，但当前打包产物只有 303 条 task 记录，`task_304` 尚未进入打包数据。由于 inflate 只为已有 task 记录创建目录（`benchmark/benchmark_pack.py::cmd_inflate`）、Detector 只枚举结果目录中实际存在的 `task_*` 目录（`main_detector.py:81-90`），`task_304` 不会进入本次评测的 scored 或 dropped 统计——当前指标反映的是实际提供的 303 条会话，而不是完整的 304 条任务定义（见 [3.2](#32-编排数据流)）。
 
 ---
 
@@ -193,7 +194,7 @@ run 目录 → task_dirs 过滤（task_* 且排除 *_agentdojo_run）
 三个值得注意的编排细节：
 
 1. **单任务异常兜底是「判负」**。`base_detector.py::BaseDetector.analyze_task` 捕获一切异常后返回 `is_malicious=False` 的空结果——检测器自己崩了等价于判良性。这个兜底在评测里会让恶意任务变成 FN；编排层另有一路：`_analyze_task_async` 里抛异常的任务直接 `dropped`，不进指标。两条路径语义不同：兜底结果会被打分，dropped 不打分。
-2. **dropped 与 scored 分离**。`run_stats` 只有三项 `total_tasks / scored / dropped`；缺会话文件或分析异常的任务被排除出指标（`main_detector.py::_analyze_tasks_async`）。与 Bench 笔记 1.5 节的 `task_304` 衔接：304 条任务定义、303 条会话，`task_304` 必然落进 dropped。
+2. **dropped 与 scored 分离**。`run_stats` 只有三项 `total_tasks / scored / dropped`；已存在的任务目录缺会话文件、或分析异常未被兜底捕获时，任务被排除出指标（`main_detector.py::_analyze_tasks_async`）。与 Bench 笔记 1.5 节的 304/303 口径衔接：`tasks.json` 定义 304 条，打包产物只有 303 条 task 记录（`task_304` 未进包）——inflate 只为已有记录建目录，本次评测既无其 scored 也无其 dropped。
 3. **escalation 率是实时统计**。对 ADR detector，`method` 字段含 "Reasoning" 即视为升级（`_analyze_tasks_async` 里的 `is_escalated` lambda），进度行打印 `Esc: n/scored`。这个口径和最终汇总打印的 escalation rate 一致。
 
 ### 3.3 统一接口与结果容器
@@ -274,7 +275,7 @@ prompt 有两版（ADR-Bench 版 vs AgentDojo 版），升级条件不同，即 
 
 #### 4.1.4 Tier-2 Reasoning：把 Claude CLI 当判定引擎
 
-`adr_baseline.py::ReasoningAgent` 不直接通过 Anthropic SDK/API 客户端发起调用，而是启动 Claude CLI 子进程，由 Claude CLI 完成模型服务调用（仍依赖 Anthropic 模型服务与 `ANTHROPIC_API_KEY`，见 [7.1](#71-关键配置与运行方式)）。命令行参数揭示了它的运行形态：
+`adr_baseline.py::ReasoningAgent` 不直接通过 Anthropic SDK/API 客户端发起调用，而是启动 Claude CLI 子进程，由 Claude CLI 完成模型服务调用（仍依赖 Anthropic 模型服务认证，`ANTHROPIC_API_KEY` 或 Claude CLI 登录均可，见 [7.1](#71-关键配置与运行方式)）。命令行参数揭示了它的运行形态：
 
 ```python
 cmd = [
@@ -319,7 +320,7 @@ cmd = [
 
 `guardrail/llamafirewall_agent/llamafirewall_baseline.py`：
 
-- 配置按消息角色映射扫描器：USER→PromptGuard（越狱检测）、ASSISTANT→AlignmentCheck（对齐检测）、TOOL→空（`config_detector.yaml` 的 `scanners` 段）。对齐扫描器被 monkey-patch：默认打分到 BLOCK 的阈值被改为 **score ≥ 0.8**（`_patch_alignment_scanner`），注释未解释原因，属于调过的判定阈值。
+- 扫描器映射存在**配置漂移**：`config_detector.yaml` 的 `scanners` 段声明 USER→PromptGuard（越狱检测）、ASSISTANT→AlignmentCheck（对齐检测）、`tool_role: []`（TOOL 不扫描），但 `_initialize_firewall` 实际硬编码 USER→PromptGuard、ASSISTANT→AGENT_ALIGNMENT、**TOOL→PromptGuard**；且 `analyze_conversation` 会把 `role == 'tool'` 的消息转成 `ToolMessage` 交给扫描器。因此实际运行行为是 TOOL 消息也会被 PromptGuard 扫描——YAML 的 `tool_role: []` 不是有效运行配置，以代码为准（这也是一处 README/YAML 之外的「声明 vs 实现」差异）。对齐扫描器被 monkey-patch：默认打分到 BLOCK 的阈值被改为 **score ≥ 0.8**（`_patch_alignment_scanner`），注释未解释原因，属于调过的判定阈值。
 - 逐消息扫描，首个 `ScanDecision.BLOCK` 即停（`analyze_conversation`）；任一消息 BLOCK → 会话判 malicious（`is_malicious = threat_count > 0`）。
 - 被编排层硬编码为串行：`max_concurrent=1`，与 `--concurrent` 参数无关（`main_detector.py:891-894`）。库缺失时 `LLAMAFIREWALL_AVAILABLE=False`，detector 不可用但 import 不炸。
 - 初始化依赖 `OPENAI_API_KEY`：`_initialize_firewall` 直接检查该环境变量，缺失则无法初始化；`OpenAIAlignmentScanner` 的 `LLMClient` 亦以 `api_key_env_var="OPENAI_API_KEY"` 取 key。默认模型 `gpt-4o-mini`，可经 `OPENAI_BASE_URL` 配置兼容服务地址。
@@ -340,7 +341,7 @@ cmd = [
 |---|---|---|---|
 | 判定单位 | 全会话三段式（预检 → triage → reasoning） | 逐消息，首个 BLOCK 即停 | 全会话单次决策 API |
 | 恶意语义 | 按 benchmark 分版契约（[2.3](#23-恶意的定义与判定标准)） | 任一消息 BLOCK（score≥0.8）即会话恶意 | 三条件取或（0.5 阈值） |
-| 外部依赖 | `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` + Claude CLI | `llamafirewall` 包 + `OPENAI_API_KEY`（gpt-4o-mini） | `JEV_API_KEY`/`OPENROUTER_API_KEY` |
+| 外部依赖 | `OPENAI_API_KEY` + Claude CLI（含 Anthropic 服务认证） | `llamafirewall` 包 + `OPENAI_API_KEY`（gpt-4o-mini） | `JEV_API_KEY`/`OPENROUTER_API_KEY` |
 | 上下文供给 | 3 个 MCP provider、16 工具（运行时拉源码/威胁框架/策略） | 无（消息原文过扫描器） | state 打包（工具清单、注入关键词、硬编码策略 3 条） |
 | 并发 | Semaphore（config 5 / 兜底 10） | 强制串行 `max_concurrent=1` | 同框架并发 |
 | 测试覆盖 | 88 个测试函数（47+41，跨两个测试文件），覆盖 triage/预检/信任槽/合同一致性 | **无专属测试** | 5 个函数 |
@@ -411,7 +412,7 @@ Detection 运行时消费的全部资产（规模为逐项清点的统计数据�
 
 - **不是在线防护**。它是基于已录制会话的事后批处理评测器，输入必须是 Bench/AgentDojo 的 run 目录；没有 Prevention 的拦截语义，判定不回流到执行层。
 - **框架层不定义威胁判定标准**。ADRBaseline 的「检测能力」就是 prompt + 上下文供给；关掉三个 context provider（消融）后 Tier-2 只剩 transcript 和 triage 摘要。框架的异常兜底会在检测器执行异常时判良性（[3.2](#32-编排数据流) 细节 1），同样参与最终结果。
-- **ADRBaseline 离不开三件套**：`OPENAI_API_KEY`（triage）、`ANTHROPIC_API_KEY` + Claude CLI 在 PATH（reasoning）。缺一即退出（`main_detector.py::main` 的 `is_available` 检查）。换用其他检测器可以减少对 ADRBaseline 完整依赖链的要求，但**不意味着免除模型服务凭据**：llamafirewall 不需要 Anthropic 凭据与 Claude CLI，但仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`，可经 `OPENAI_BASE_URL` 配兼容服务）且要安装 `llamafirewall` 包；jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`。
+- **ADRBaseline 的依赖**：`OPENAI_API_KEY`（triage 的 OpenAI 客户端）；Tier-2 要求 Claude CLI 已安装且具备可用的 Anthropic 模型服务认证——`ANTHROPIC_API_KEY` 是认证方式之一，Claude CLI 也可经自身登录机制认证。当前 `is_available()` 只检查 MCP/workspace 就绪状态，不验证模型服务认证，不能将认证缺失等同于「缺一即退出」。换用其他检测器可以减少对 ADRBaseline 完整依赖链的要求，但**不意味着免除模型服务凭据**：llamafirewall 不需要 Anthropic 凭据与 Claude CLI，但仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`，可经 `OPENAI_BASE_URL` 配兼容服务）且要安装 `llamafirewall` 包；jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`。
 - **AgentDojo 模式不能复用 ADR-Bench 的真值口径**。两种模式的真值来源与目录布局被 `validate_benchmark_results_dir` 强制互斥（见 [2.4](#24-真值来源)）。
 
 ### 6.3 ADRBaseline 自身的注入面
@@ -447,10 +448,10 @@ Tier-1 的「歧义即升级、错误即升级」加上 Tier-2 的固定话术�
 
 - **必须在 `Detection/` 目录下运行**（CWD 依赖：`tasks.json`、`config_detector.yaml`）；否则真值加载直接失败（见 [2.4](#24-真值来源)）。
 - **`mcp` 依赖须 `<2`**：仓库 `pyproject.toml` 声明 `mcp>=1.0.0`，当前 PyPI 的 mcp 2.x 已移除 `mcp.server.fastmcp`，须 pin `<2` 才能加载 context provider——这是上游 README 未提的复现坑。
-- **API key**：ADRBaseline 需 `OPENAI_API_KEY` + `ANTHROPIC_API_KEY`（且 Claude CLI 在 PATH）。换用其他检测器可减少依赖链但不免除模型服务凭据：llamafirewall 仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`），jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`（见 [6.2](#62-不能做什么)）。
+- **API key 与认证**：ADRBaseline 需 `OPENAI_API_KEY`（triage 的 OpenAI 客户端）+ Claude CLI 在 PATH 且具备可用的 Anthropic 模型服务认证——`ANTHROPIC_API_KEY` 是认证方式之一，Claude CLI 也可经自身登录机制（`claude auth login`，见上游 README 故障排查）完成认证。当前 `is_available()` 只检查 MCP/workspace 就绪状态，不验证模型服务认证；认证缺失在运行时以调用失败暴露，而非启动检查直接退出。换用其他检测器可减少依赖链但不免除模型服务凭据：llamafirewall 仍需 `OPENAI_API_KEY`（默认 `gpt-4o-mini`），jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`（见 [6.2](#62-不能做什么)）。
 - **端到端判定依赖外部模型服务**：triage/reasoning/llamafirewall/jev 的结果都不可字节级复现，`run_manifest` 只保证输入与配置可对回。
 - **Claude CLI 版本未 pin**：`_invoke_claude_reasoning` 解析的 stdout JSON 结构（`subtype`/`is_error`/`usage`）随 CLI 版本可能漂移，仓库只 lock 了 Python 依赖。
-- **304 任务定义 vs 303 会话**：`task_304` 永远 dropped（与 Bench 笔记 1.5 节同一事实的 detector 侧表现）。
+- **304 任务定义 vs 303 会话**：`task_304` 未进入当前打包产物——inflate 只为 JSONL 内 task 记录建目录、Detector 只枚举实际存在的 `task_*` 目录，故它不进 scored 也不进 dropped；本次指标反映实际提供的 303 条会话。
 
 ### 7.2 实测（macOS，本机）
 
@@ -504,7 +505,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | `test_run_manifest_integration.py` | 5 | 端到端 digest 一致性、analyzer 复用不串 hash |
 | `test_openai_config.py` / `test_base_detector.py` / `test_policy_store.py` | 4 / 3 / 1 | 费率计算、异常兜底、YAML 加载 |
 
-**L1 正例（该发生的发生了）**：最有分量的一条是 `test_detects_real_task_110_transcript_from_packed_benchmark`——直接加载打包基准里 task_110 的真机会话，断言 Unicode 预检命中。它把「过滤器对真实走私样本有效」做成了回归测试，而且测的是打包产物里的转义字面量形式，正好钉住 [4.1.1](#411-确定性-unicode-混淆预检) 的第二个细节。拒答重试路径、`[TOOL_USE: …]` 解析、triage 百分比置信度等解析行为均有直接断言。
+**L1 正例（该发生的发生了）**：最有分量的一条是 `test_detects_real_task_110_transcript_from_packed_benchmark`——该用例直接加载基准数据中的 task_110 会话，验证 Unicode 预检能够识别其中以转义字面量形式存储的走私 payload。它证明了**当前打包数据表示下的转义匹配路径**有效（[7.2](#72-实测macos本机) 实测证实该会话不含真实 bidi 控制码点），但不能等同于对实际 bidi 控制码点攻击的端到端检测验证——正好钉住 [4.1.1](#411-确定性-unicode-混淆预检) 的第二个细节。拒答重试路径、`[TOOL_USE: …]` 解析、triage 百分比置信度等解析行为均有直接断言。
 
 **L2 反例（不该发生的没发生）**：这一层是安全工程的显学——
 
@@ -568,7 +569,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | C10 | Tier-2 交接中的 MCP 名单仅来自框架注入的 system 元数据，经语法白名单与数量/长度上限过滤 | `structured_risk_route_triage.py:176-236` |
 | C11 | 主管线消息转换丢弃 `message_type`/`tool_calls`，Tier-2 格式化器的 TOOL CALL/TOOL RESULT 链接分支在 CLI 管线下不可达；packed 数据实测两字段存在（tool_calling 9,431 / tool_result 8,112 条消息） | `main_detector.py:455-509`；`adr_baseline.py:1237-1279`；本机实测 |
 | C12 | 真值来源：ADR-Bench 用 CWD 的 tasks.json，AgentDojo 用 run 目录 ground_truth.json；目录布局互斥校验 | `main_detector.py:388-453`、`:647-663` |
-| C13 | dropped 任务不计入指标；304 定义 vs 303 会话使 task_304 恒为 dropped | `main_detector.py:226-285`；Bench 笔记 1.5 |
+| C13 | dropped（已存在任务目录但缺会话文件，或异常未被兜底捕获）不计入指标；`task_304` 未进入打包产物（inflate 只为 JSONL 内 task 记录建目录），既不 scored 也不 dropped | `main_detector.py:81-90`、`:226-285`；`benchmark/benchmark_pack.py::cmd_inflate`；Detection README |
 | C14 | llamafirewall 被强制串行（max_concurrent=1），首个 BLOCK 即停，score≥0.8 才 BLOCK | `main_detector.py:891-894`；`llamafirewall_baseline.py:210`、`:328` |
 | C15 | Jev 走 OpenRouter Decisions API，三条件取或判定，threshold 0.5；README 未提及该基线 | `jev_baseline.py:47-49`、`:215-219`；`main_detector.py:832` vs Detection README「Code Structure」 |
 | C16 | 指标含混淆矩阵/P/R/F1/Acc/latency/cost/per-threat；真值缺失抛异常无 fallback | `main_detector.py:511-644` |
