@@ -333,7 +333,7 @@ cmd = [
 - 走 OpenRouter 的 **Decisions API**（`https://openrouter.ai/api/alpha/decisions`），model `~typesafe/jev-latest`——不是 chat completions，是「state + questions」的一次性决策接口。问题类型 `noul` 返回分数，`choice` 返回类别。
 - 两种模式：`enable_context_assistant=true`（默认）把提取出的 user_prompt、工具清单、MCP 服务器、注入关键词命中标志、最近 trace 和一段硬编码企业策略（`ENTERPRISE_SECURITY_POLICIES`，3 条）打包成 state；false 则是「Raw System 1（0-FP Mode）」，只给原始 trace。
 - 判定是三条件取或：`noul(is_malicious) ≥ 0.5` ∨ `noul(violates_policy) ≥ 0.5`（仅 context 模式）∨ `category == "malicious"`（`analyze_task`）。注入关键词命中只是 state 里的一个标志位，不直接参与判定。
-- README 未提及该基线（见 [1.4](#14-readme-与代码的三个口径差异)）。
+- README 未提及该基线（见 [1.4](#14-readme-与代码的四个口径差异)）。
 
 ### 4.4 三个检测器的策略差异
 
