@@ -59,7 +59,7 @@ Detection 不是单一 detector，而是「检测评测框架 + 三个可插拔�
 
 Detection 在 ADR 项目中承担**威胁检测与检测效果评测**（代码证实）：读入 Bench/AgentDojo 的 run 目录，逐会话跑检测器，对照真值输出混淆矩阵与溯源工件。两个关键边界：
 
-- **离线批处理评测器，不是在线防护**。输入必须是已录好的 run 目录；判定不回流执行层，没有 Prevention 的拦截语义。
+- **基于已录制会话的事后批处理评测，不是在线防护**。输入必须是已录好的 run 目录；判定不回流执行层，没有 Prevention 的拦截语义。
 - **目录内是「框架 + 检测器」的合集，不是一个单一 detector**。评测编排（`main_detector.py`）、统一接口（`base_detector.py`）、三个检测器（`guardrail/` 三目录）、上下文供给（`context_providers/`）、溯源与成本（`run_manifest.py`、`openai_config.py`）各自独立，详见 [3.1](#31-组件职责评测框架与检测器)。
 
 ### 1.2 与其他 ADR 组件的关系
@@ -274,7 +274,7 @@ prompt 有两版（ADR-Bench 版 vs AgentDojo 版），升级条件不同，即 
 
 #### 4.1.4 Tier-2 Reasoning：把 Claude CLI 当判定引擎
 
-`adr_baseline.py::ReasoningAgent` 不走 Anthropic API，而是起 Claude CLI 子进程。命令行参数揭示了它的运行形态：
+`adr_baseline.py::ReasoningAgent` 不直接通过 Anthropic SDK/API 客户端发起调用，而是启动 Claude CLI 子进程，由 Claude CLI 完成模型服务调用（仍依赖 Anthropic 模型服务与 `ANTHROPIC_API_KEY`，见 [7.1](#71-关键配置与运行方式)）。命令行参数揭示了它的运行形态：
 
 ```python
 cmd = [
@@ -342,10 +342,10 @@ cmd = [
 | 外部依赖 | `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` + Claude CLI | `llamafirewall` 包（gpt-4o-mini） | `JEV_API_KEY`/`OPENROUTER_API_KEY` |
 | 上下文供给 | 3 个 MCP provider、16 工具（运行时拉源码/威胁框架/策略） | 无（消息原文过扫描器） | state 打包（工具清单、注入关键词、硬编码策略 3 条） |
 | 并发 | Semaphore（config 5 / 兜底 10） | 强制串行 `max_concurrent=1` | 同框架并发 |
-| 测试覆盖 | 充分（93 个函数跨两个文件） | **无专属测试** | 5 个函数 |
+| 测试覆盖 | 88 个测试函数（47+41，跨两个测试文件），覆盖 triage/预检/信任槽/合同一致性 | **无专属测试** | 5 个函数 |
 | README 提及 | 是 | 是 | **否** |
 
-框架公平性：三个基线吃同样的会话转换、同样的真值、同样的目录校验与 manifest 机制；差异只在判定核。llamafirewall 强制串行是唯一的不对等（注释未给原因，合理推测与库的线程安全有关）。
+框架公平性：三个检测器共享评测框架的会话转换、真值、目录校验与 manifest 机制，但各自的**输入加工、上下文供给与检测粒度不同**——ADRBaseline 额外获得框架注入的 MCP 元数据 system 消息（[2.2](#22-检测对象与输入数据)）和 3 个 MCP provider，Jev 自行从会话提取信息构造 state，LlamaFirewall 按消息角色逐条扫描。因此这组实验比较的是各检测器整体方案的表现，不是相同信息条件下的判定核差异。llamafirewall 强制串行是运行方式上的不对等（注释未给原因，合理推测与库的线程安全有关）。
 
 ---
 
@@ -408,7 +408,7 @@ Detection 运行时消费的全部资产（规模为逐项清点的统计数据�
 
 ### 6.2 不能做什么
 
-- **不是在线防护**。它是批处理评测器，输入必须是 Bench/AgentDojo 的 run 目录；没有 Prevention 的拦截语义，判定不回流到执行层。
+- **不是在线防护**。它是基于已录制会话的事后批处理评测器，输入必须是 Bench/AgentDojo 的 run 目录；没有 Prevention 的拦截语义，判定不回流到执行层。
 - **框架层不定义威胁判定标准**。ADRBaseline 的「检测能力」就是 prompt + 上下文供给；关掉三个 context provider（消融）后 Tier-2 只剩 transcript 和 triage 摘要。框架的异常兜底会在检测器执行异常时判良性（[3.2](#32-编排数据流) 细节 1），同样参与最终结果。
 - **ADRBaseline 离不开三件套**：`OPENAI_API_KEY`（triage）、`ANTHROPIC_API_KEY` + Claude CLI 在 PATH（reasoning）。缺一即退出（`main_detector.py::main` 的 `is_available` 检查）。不使用这两类凭据做独立验证时，可用另外两个检测器：llamafirewall 仍需安装 `llamafirewall` 包及其自身模型服务配置（`gpt-4o-mini`），jev 需 `JEV_API_KEY` 或 `OPENROUTER_API_KEY`——两者各自仍需 API Key，并非完全免凭据运行。
 - **AgentDojo 模式不能复用 ADR-Bench 的真值口径**。两种模式的真值来源与目录布局被 `validate_benchmark_results_dir` 强制互斥（见 [2.4](#24-真值来源)）。
@@ -575,7 +575,7 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | C18 | ADRBaseline Tier-2 上下文供给 = 3 个 FastMCP provider、16 个工具；源码 bundle 上限 24 文件/240KB，registry 路径越界拒绝 | `context_providers/` 各文件（附录 A）；实测清点 5 战术/17 技术、12 策略、116 注册项 |
 | C19 | `threat_repository_eas.yaml` 为代码零引用的死资产；`-woeas` 后缀对应 threat intelligence 消融 | 全仓 grep；`main_detector.py:1040` |
 | C20 | 全套单测无 API key 可跑（LLM 全 mock），227 项 10.5s 通过；llamafirewall 基线无专属测试 | 本机实测（7.2 节）；`tests/` 清点 |
-| C21 | Detection 目录内评测框架不定义威胁判定标准，恶意识别逻辑由检测器实现；但框架的异常兜底会把执行异常判为良性，参与最终评测结果；三个检测器共享框架的转换/真值/校验/manifest，差异只在判定核 | `main_detector.py`、`base_detector.py` vs `guardrail/` 三目录（附录 A） |
+| C21 | Detection 目录内评测框架不定义威胁判定标准，恶意识别逻辑由检测器实现；但框架的异常兜底会把执行异常判为良性，参与最终评测结果；三个检测器共享框架的转换/真值/校验/manifest，但输入加工、上下文供给与检测粒度各不相同——实验比较的是各检测器整体方案，不是相同信息条件下的判定核 | `main_detector.py`、`base_detector.py` vs `guardrail/` 三目录（附录 A） |
 | C22 | 威胁分类学（5 战术 / 17 技术）在代码中三处落地：Tier-1 枚举、Tier-2 定向检索、per-threat 指标分组 | `adr_baseline.py` TriageLLM prompt；`threat_intelligence_server.py`；`main_detector.py:511-644` |
 
 ## 附录 C 未验证事项及其影响
@@ -596,11 +596,11 @@ $ .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 | 评测框架 / 检测器 | Detection 目录的两层职责：评测框架（`main_detector.py`、`base_detector.py` 等）负责喂输入、打分、溯源，不定义威胁判定标准（其异常兜底仍会判良性、影响结果）；检测器（`guardrail/` 三目录）持有恶意识别逻辑 |
 | Tier-1 / Tier-2 | ADRBaseline 双代理的两级：Tier-1 = TriageLLM（保守升级筛选，设计目标高召回），Tier-2 = ReasoningAgent（复核，设计目标高精度）。代码中对应 `TriageLLM` 与 `ReasoningAgent` |
 | escalation / 升级 | Tier-1 判 SUSPICIOUS 后把会话交给 Tier-2 的动作；escalation 率 = 升级会话数 / 打分会话数 |
-| fast path | Tier-1 判 BENIGN 后跳过 Tier-2 直接出结果；结果 `method` 为 "ADR Fast Triage (High Recall)" |
+| fast path | Tier-1 判 BENIGN 后跳过 Tier-2 直接出结果；`method` 值 "ADR Fast Triage (High Recall)" 是代码里的结果标签字符串，High Recall 指设计意图，不代表已验证的召回率 |
 | 信任槽（trusted slot） | 会进入 LLM 提示词且被框架自身话术背书的文本区域（如「Triage assessment:」）。纪律：攻击者可控文本不得进入，须走脱敏的 `prompt_reason` |
 | decision contract | Tier-1 输出格式约定：缺省 `stock_text`（自由文本四行格式），可选 `structured_risk_route_v1`（strict JSON Schema） |
 | ASCII 走私 | 用 Unicode Tag Block（U+E0000 段）把不可见但 LLM 可读的 ASCII 文本夹带进正常内容的手法 |
-| dropped | 缺会话文件或分析异常的任务；不计入指标，仅出现在 `run_stats.dropped` |
+| dropped | 缺会话文件或未被兜底捕获的分析异常的任务；不计入指标（被 `analyze_task` 兜底判良性的异常仍计分，见 3.2 细节 1），仅出现在 `run_stats.dropped` |
 | context provider | 为 ADRBaseline Tier-2 提供威胁情报/策略/源码的三个 FastMCP 服务，经 `.mcp.json` 挂给 Claude CLI |
 | noul | Jev Decisions API 的问题类型，返回 0–1 分数（非 chat completion） |
 | 消融后缀 | 按 `enable_threat_intelligence/source_code/policy/triage` 四开关拼装的输出文件与 debug 目录后缀：`-woeas` / `-wosourcecode` / `-wopolicy` / `-wotriage` |

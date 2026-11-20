@@ -38,10 +38,10 @@
     <rect class="box" x="350" y="110" width="235" height="150"/>
     <text x="366" y="138" class="h2">BenchmarkAnalyzer</text>
     <text x="366" y="164" class="t">asyncio + Semaphore 并发</text>
-    <text x="366" y="184" class="t">无会话/异常 → dropped（不计分）</text>
-    <text x="366" y="204" class="t">escalation 率实时统计</text>
-    <text x="366" y="224" class="t">run_manifest：仅 hash 类溯源</text>
-    <text x="366" y="244" class="s">main_detector.py</text>
+    <text x="366" y="184" class="t">检测器异常 → 兜底判良性（仍计分）</text>
+    <text x="366" y="204" class="t">缺会话/未兜底异常 → dropped（不计分）</text>
+    <text x="366" y="224" class="t">escalation 率实时统计</text>
+    <text x="366" y="244" class="s">main_detector.py · run_manifest 仅 hash 溯源</text>
 
     <path class="arrow" d="M585,185 L630,185"/>
 
@@ -56,7 +56,7 @@
     <rect class="stage1" x="655" y="215" width="250" height="120"/>
     <text x="671" y="238" class="t" font-weight="700">② Tier-1 Triage LLM</text>
     <text x="671" y="259" class="mono">gpt-4o · temp 0 · max_tokens 1000</text>
-    <text x="671" y="281" class="t">高召回解析：歧义一律 SUSPICIOUS</text>
+    <text x="671" y="281" class="t">保守升级策略：歧义/异常一律升级</text>
     <text x="671" y="301" class="t">错误 / 结构化校验失败 → 升级</text>
     <text x="671" y="321" class="s">5 种 threat_tactic 枚举</text>
 
@@ -129,7 +129,7 @@
     <rect class="chip" x="40" y="882" width="233" height="64"/><text x="56" y="906" class="t">Unicode 置信分档</text><text x="56" y="926" class="s">tag 0.95 · override 0.9</text><text x="56" y="941" class="s">embed 0.85 · isolate 0.75</text>
     <rect class="chip" x="288" y="882" width="233" height="64"/><text x="304" y="906" class="t">Tier-2 配置</text><text x="304" y="926" class="s">max_turns 60 · timeout 300 s</text><text x="304" y="941" class="s">max_tokens 10000</text>
     <rect class="chip" x="536" y="882" width="233" height="64"/><text x="552" y="906" class="t">实测（macOS 本机）</text><text x="552" y="926" class="s">tests/ 227 passed</text><text x="552" y="941" class="s">py 3.12.13 · pytest 9.2.0</text>
-    <rect class="chip" x="784" y="882" width="233" height="64"/><text x="800" y="906" class="t">真机走私样本</text><text x="800" y="926" class="s">303 会话仅 task_110 命中</text><text x="800" y="941" class="s">转义字面量形式</text>
+    <rect class="chip" x="784" y="882" width="233" height="64"/><text x="800" y="906" class="t">基准会话样本</text><text x="800" y="926" class="s">303 会话仅 task_110 命中</text><text x="800" y="941" class="s">转义字面量形式</text>
     <rect class="chip" x="1032" y="882" width="233" height="64"/><text x="1048" y="906" class="t">消息保真缺口</text><text x="1048" y="926" class="s">主管线丢 message_type</text><text x="1048" y="941" class="s">/ tool_calls 字段</text>
     <rect class="chip" x="1280" y="882" width="240" height="64"/><text x="1296" y="906" class="t">测试规模</text><text x="1296" y="926" class="s">12 文件 · 162 函数</text><text x="1296" y="941" class="s">227 收集项</text>
   </g>
