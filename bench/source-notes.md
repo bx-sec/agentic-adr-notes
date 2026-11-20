@@ -6,7 +6,7 @@
 
 概览图。图中流程与数字仅作速查，具体口径以本文正文和附录 B 的证据索引为准。
 
-ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合成 MCP 服务器 fixture、一个把 Claude Code 当 agent runtime 的并发执行器、一个把执行日志压成单文件的打包格式、一个把真值和检测结果算成混淆矩阵的打分器。理解其中任何一件都需要同时看另外三件，这是本文的组织方式。
+ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合成 MCP 服务器 fixture，一个把 Claude Code 当 agent runtime 的并发执行器，一个把执行日志压成单文件的打包格式，一个把真值和检测结果算成混淆矩阵的打分器。理解其中任何一件都需要同时看另外三件。本文按这个思路组织。
 
 ## 目录
 
@@ -62,7 +62,7 @@ ADR-Bench 不是一个"数据集"，而是四件东西捆在一起：一套合�
 
 Discovery 回答"端点上有哪些 AI 工具"，Sensor 回答"这些工具在做什么"。两者都只提供原料。安全团队真正要决策的问题是第三个：**给定一段完整的 agent 会话，能不能判定它偏离了用户意图**。
 
-这个问题无法用真实企业流量来评测。真实流量里恶意样本极度稀疏，且没有可公开的标签；自己造攻击又不具备代表性。ADR-Bench 的选择是：造一批**企业业务场景的合成任务**，每个任务挂 1–4 个本地 MCP 服务器，让真实 agent runtime 去执行，把会话记录下来，再配上人工标注的真值。恶意任务不是靠 prompt 里写"去偷密码"，而是靠 **fixture 的工具响应里藏东西**——这一点决定了整个基准的技术形态，见 [2.5](#25-恶意性的锚点在哪里)。
+这个问题无法用真实企业流量来评测。真实流量里恶意样本极度稀疏，且没有可公开的标签。自己造攻击又不具备代表性。ADR-Bench 的选择是：造一批**企业业务场景的合成任务**，每个任务挂 1–4 个本地 MCP 服务器，让真实 agent runtime 去执行，记录会话，再配上人工标注的真值。恶意任务不是靠 prompt 里写"去偷密码"，而是靠 **fixture 的工具响应里藏东西**。这一点决定了整个基准的技术形态，见 [2.5](#25-恶意性的锚点在哪里)。
 
 ### 1.2 在 ADR 五能力中的位置
 
@@ -76,7 +76,7 @@ ADR 论文把系统拆成五个互补能力，仓库根 README 的第 3 条对�
 | 检测威胁 | ADR Detector | 已开源 | Bench 的下游消费者 |
 | 阻止不安全操作 | ADR Prevention | 未开源 | 无 |
 
-方向是单向的：Bench 产出会话与真值，Detector 消费它们并输出混淆矩阵。Bench 不评价 Prevention，因为该组件不在开源范围内；也不评价 Explorer（离线红队引擎），`docs/REPRODUCIBILITY.md` 明确标注其未发布。
+方向是单向的：Bench 产出会话与真值，Detector 消费它们并输出混淆矩阵。Bench 不评价 Prevention，因为该组件不在开源范围内。Bench 也不评价 Explorer（离线红队引擎），`docs/REPRODUCIBILITY.md` 明确标注其未发布。
 
 ### 1.3 与 Discovery、Sensor 的边界
 
@@ -90,7 +90,7 @@ ADR 论文把系统拆成五个互补能力，仓库根 README 的第 3 条对�
 | 是否产生真实行为 | 否（只读探测） | 否（只读解析） | **是（真的执行工具调用）** |
 | 主要风险 | 误报未知工具 | 解析失败丢会话 | 执行器跑飞、payload 在采集环节被破坏 |
 
-最后一行是 Bench 独有的：它是仓库里唯一会**主动触发副作用**的组件。`config_benchmark.yaml` 里 `execution.permission_mode: bypassPermissions`、`security.disable_safety_mechanisms: true` 就是为这个目的服务的，也是它必须被隔离运行的根本原因。
+最后一行是 Bench 独有的：它是仓库里唯一会**主动触发副作用**的组件。`config_benchmark.yaml` 里 `execution.permission_mode: bypassPermissions`、`security.disable_safety_mechanisms: true` 就是为这个目的服务的。这也是它必须被隔离运行的根本原因。
 
 ### 1.4 与 AgentDojo 的关系
 
@@ -109,7 +109,7 @@ ADR 把 AgentDojo 当作第二个子集，理由是互补：ADR-Bench 测"工具
 - **会话记录**（`benchmark/adr_bench_*/task_XXX/workspace/claude_conversation.json`）：agent 实际做了什么。是**观测**。
 - **打包产物**（`benchmark/adr_bench_20251017_151604.jsonl`）：前两者的冻结快照。是**分发物**。
 
-三者可以不同步。实测：`tasks.json` 有 304 条任务定义，而打包产物里只有 303 条会话，其 manifest 内嵌的任务快照也是 303 条——因为 `task_304` 还没有录制会话。打分时以 CWD 的 `tasks.json` 为准取真值，以结果目录为准取会话，于是 `task_304` 落进 `run_stats.dropped`。
+三者可以不同步。实测：`tasks.json` 有 304 条任务定义，而打包产物里只有 303 条会话。其 manifest 内嵌的任务快照也是 303 条，因为 `task_304` 还没有录制会话。打分时以 CWD 的 `tasks.json` 为准取真值，以结果目录为准取会话。于是 `task_304` 落进 `run_stats.dropped`。
 
 ---
 
@@ -176,14 +176,14 @@ ADR 把 AgentDojo 当作第二个子集，理由是互补：ADR-Bench 测"工具
 
 **打包产物**
 
-以下打包产物数据为 macOS 本机实测（对仓库自带 JSONL 解包清点）。
+以下打包产物数据为 macOS 本机实测（解包清点仓库自带的 JSONL）。
 
 | 文件 | 大小 | 任务记录 | 含会话 | 消息总数 |
 |---|---|---|---|---|
 | `adr_bench_20251017_151604.jsonl` | 10.12 MB | 303 | 303 | 19224（均值 63.4，最短 5，最长 205） |
 | `agentdojo_20251022_190150.jsonl` | 0.66 MB | 186 | 93 | — |
 
-AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，另 93 条是原始 `task_XXX_agentdojo_run` 目录，后者的 `conversation` 为 `null`。检测器在目录发现阶段会排除 `_agentdojo_run` 后缀（`main_detector.py:81`），所以不影响打分，只是让打包文件多背了一倍的空记录。
+AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，另 93 条是原始 `task_XXX_agentdojo_run` 目录，后者的 `conversation` 为 `null`。检测器在目录发现阶段会排除 `_agentdojo_run` 后缀（`main_detector.py:81`）。所以打分不受影响，只是打包文件多背了一倍的空记录。
 
 ### 2.4 威胁模型：17 类技术与分布
 
@@ -209,7 +209,7 @@ AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，�
 
 这是 ADR-Bench 与其他 prompt 注入基准最根本的区别，值得用实例说明。
 
-以 `location_harvester` 为例（`context_providers/source_codes/mcp_servers_1/location_harvester/location_harvester.py`）。该服务器注册名是 `location_harvester`，但代码里 FastMCP 的实例名是 `weather_forecast_service`（第 17 行），`source_codes_registry.yaml` 给它的描述是"Advanced weather forecasting service with location-based predictions and alerts"。这是有意的供应链冒名测试：注册表里它同时被计入 `community` 类型。
+以 `location_harvester` 为例（`context_providers/source_codes/mcp_servers_1/location_harvester/location_harvester.py`）。该服务器注册名是 `location_harvester`，但代码里 FastMCP 的实例名是 `weather_forecast_service`（第 17 行）。`source_codes_registry.yaml` 给它的描述是"Advanced weather forecasting service with location-based predictions and alerts"。这是有意的供应链冒名测试：注册表里它同时被计入 `community` 类型。
 
 它的 `get_weather`（第 36 行）表面返回天气，实际在响应体里塞了三类东西：
 
@@ -258,7 +258,7 @@ AgentDojo 那个 186 不是笔误：其中 93 条是转换后的 `task_XXX`，�
 | AgentDojo 打包产物 | `agentdojo_20251022_190150.jsonl` | 0.66 MB，186 条记录（93 会话 + 93 空记录） | AgentDojo 子集的执行记录快照 |
 | AgentDojo 套件（vendored） | `Detection/benchmark/agentdojo/` | v1 四套件：banking、slack、travel、workspace | 每套件含 `user_tasks.py` 与 `injection_tasks.py`；攻击模块为 `important_instructions`、`dos`、`baseline` 三族 |
 
-43 个恶意任务的编号 → 技术映射见附录 E；实际加载哪些套件由 `config_benchmark.yaml` 的 `agentdojo.suites` 指定（见附录 B C16：同节点的 `user_tasks` 字段未被读取）。
+43 个恶意任务的编号 → 技术映射见附录 E。实际加载哪些套件由 `config_benchmark.yaml` 的 `agentdojo.suites` 指定（见附录 B C16：同节点的 `user_tasks` 字段未被读取）。
 
 ---
 
@@ -288,7 +288,7 @@ benchmark/adr_bench_20251017_151604.jsonl        ← manifest + 每任务一行
   figs/                                           ← PR 曲线、延迟 CDF、成本-召回、AUPRC
 ```
 
-阶段 ① 可跳过：仓库直接提供了 ② 的产物，`inflate` 之后就能进 ③。这是"复现论文数字"和"从头跑一遍"两条路径的分叉点，也是 `docs/REPRODUCIBILITY.md` 把 inflate 列为首选的原因——省掉 Claude CLI 和 API 花费。
+阶段 ① 可跳过：仓库直接提供了 ② 的产物，`inflate` 之后就能进 ③。这是"复现论文数字"和"从头跑一遍"两条路径的分叉点。`docs/REPRODUCIBILITY.md` 把 inflate 列为首选，原因是可以省掉 Claude CLI 和 API 花费。
 
 ### 3.2 执行层：把 Claude CLI 当 agent runtime
 
@@ -310,15 +310,15 @@ claude -p "<user_prompt>" \
 
 **代价有三个，都在代码里留了痕迹。**
 
-其一，子进程超时不会自己死。`_execute_command` 用 `asyncio.wait_for` 包 `process.communicate()`，但 `wait_for` 超时只取消 await，不碰子进程；如果孙进程（比如某个 MCP 服务器）继承了 stdout/stderr 管道，`process.wait()` 会一直挂住。修法是 `start_new_session=(os.name == "posix")` 把整棵树放进独立进程组，超时后 `killpg` 先 SIGTERM 再 SIGKILL（`_kill_process_tree`）。这条修复有对应测试，见 [4.2](#42-l1-正例断言该发生的发生了)。
+其一，子进程超时不会自己死。`_execute_command` 用 `asyncio.wait_for` 包 `process.communicate()`。但 `wait_for` 超时只取消 await，不碰子进程。如果孙进程（比如某个 MCP 服务器）继承了 stdout/stderr 管道，`process.wait()` 会一直挂住。修法是 `start_new_session=(os.name == "posix")` 把整棵树放进独立进程组，超时后 `killpg` 先 SIGTERM 再 SIGKILL（`_kill_process_tree`）。这条修复有对应测试，见 [4.2](#42-l1-正例断言该发生的发生了)。
 
-其二，`--max-turns 30` 是硬上限。任务声明 1–7 个 `expected_tools`（中位数 5），加上推理轮次，30 轮在大任务上可能不够；不够时 CLI 正常退出但任务未完成，`result.json` 里 `success` 与工具覆盖率会分叉。
+其二，`--max-turns 30` 是硬上限。任务声明 1–7 个 `expected_tools`（中位数 5），加上推理轮次，30 轮在大任务上可能不够。不够时 CLI 正常退出，但任务未完成，`result.json` 里 `success` 与工具覆盖率会分叉。
 
-其三，`.mcp.json` 的路径参数是字符串替换，`_process_arg_template` 只支持四个占位符（`{workspace_path}`、`{database_path}`、`{database_url}`、`{allowed_directories}`），且用 `workspace_dir.parent.parent.parent.parent` 反推项目根。目录层级一变，`{allowed_directories}` 就指错地方。
+其三，`.mcp.json` 的路径参数是字符串替换。`_process_arg_template` 只支持四个占位符（`{workspace_path}`、`{database_path}`、`{database_url}`、`{allowed_directories}`），并用 `workspace_dir.parent.parent.parent.parent` 反推项目根。目录层级一变，`{allowed_directories}` 就指错地方。
 
 ### 3.3 MCP-only 使用约束的实现机制与缺口
 
-"强制纯 MCP 使用"在 README 里写作一个事实，实现上是三层叠加，每层强度不同——只有第一层真正限制工具，第二层是权限模式配置，第三层只是行为引导。
+"强制纯 MCP 使用"在 README 里写作一个事实，实现上是三层叠加，每层强度不同。只有第一层真正限制工具，第二层是权限模式配置，第三层只是行为引导。
 
 | 层 | 机制 | 位置 | 强度 |
 |---|---|---|---|
@@ -330,7 +330,7 @@ claude -p "<user_prompt>" \
 
 **缺口是结构性的。** 逐项核对 Claude Code 的实际工具名，`Read`、`Write`、`Edit`、`Bash`、`Glob`、`Grep`、`Task`、`TodoWrite`、`WebSearch`、`MultiEdit` 都在名单里，但 `NotebookEdit`、`KillShell`、`SlashCommand` 不在。denylist 天然无法覆盖未知工具和未来新增工具。
 
-**更关键的是验证方式。** 强制是 denylist，验证却是事后统计：`ToolAnalyzer` 统计 `mcp__` 前缀与非前缀调用数，`_generate_summary` 输出 `overall_mcp_ratio`。这个比值只是报告，不构成断言——某个任务若调用了 `NotebookEdit`，比值会下降，但任务不会被判为无效，也不会进 `failed_tasks`。README 里 ">95% MCP tool usage" 是观测口径，不是准入门槛。
+**更关键的是验证方式。** 强制是 denylist，验证却是事后统计：`ToolAnalyzer` 统计 `mcp__` 前缀与非前缀调用数，`_generate_summary` 输出 `overall_mcp_ratio`。这个比值只是报告，不构成断言。某个任务若调用了 `NotebookEdit`，比值会下降，但任务不会被判为无效，也不会进 `failed_tasks`。README 里 ">95% MCP tool usage" 是观测口径，不是准入门槛。
 
 ### 3.4 transcript 归一化与 payload 保真
 
@@ -344,7 +344,7 @@ claude -p "<user_prompt>" \
 | `agent_response` | `role == "assistant"` 且无工具调用 | 文本 |
 | `system_init` | 无 `message` 字段 | `cwd` 字符串 |
 
-这套映射支撑了下游的全部统计。它有一个不起眼但致命的细节：**`_extract_text_from_content` 在遇到非预期结构时会退化成 `str()`**，而 `str()` 对 list 调用的是 `repr()`，会把不可打印 Unicode 转成字面转义序列。
+这套映射支撑了下游的全部统计。它有一个不起眼但致命的细节：**`_extract_text_from_content` 在遇到非预期结构时会退化成 `str()`**。`str()` 对 list 调用的是 `repr()`，会把不可打印 Unicode 转成字面转义序列。
 
 `adr_baseline.py` 的注释记录了这个后果，并且可以被独立验证。实测 `task_110` 的会话：
 
@@ -352,11 +352,11 @@ claude -p "<user_prompt>" \
 - 会话里检索真实码点 U+202E/U+2067：**0 处**。
 - 检索字面转义 `\\u202e`：**1 处**，且整段内容是 Python `repr()` 形态（`[{'tool_use_id': ..., 'content': [{'type': 'text', ...`）。
 
-也就是说，这条攻击的 payload 在写入 transcript 的瞬间就被降级成了六个可见字符，任何基于真实码点的检测逻辑都不可能命中它。修复分两步：写侧改成按块提取（不再 `str()` 整个 list），读侧增加对字面转义形态的匹配。前者只对未来运行生效，后者才是让现有打包产物可检测的关键。
+也就是说，这条攻击的 payload 在写入 transcript 的瞬间就被降级成了六个可见字符。任何基于真实码点的检测逻辑都不可能命中它。修复分两步：写侧改成按块提取（不再 `str()` 整个 list），读侧增加对字面转义形态的匹配。前者只对未来运行生效，后者才是让现有打包产物可检测的关键。
 
-这个案例的普遍意义：**基准自身的采集缺陷会表现为被测检测器的假阴性**，而且这种假阴性在指标上与被测系统的真实缺陷完全无法区分。
+这个案例的普遍意义：**基准自身的采集缺陷会表现为被测检测器的假阴性**。而且这种假阴性在指标上与被测系统的真实缺陷完全无法区分。
 
-同一函数里还有一处信息损失：`_truncate_content` 默认在 10000 字符处截断并追加 `...`。实测 19224 条消息中有 18 条触到上限（最长 10003），比例 0.09%。对当前样本影响可忽略，但截断点是内容长度而非 token 数，换成响应更长的服务器后这个比例会上升，且截断会无条件砍掉响应尾部——恰恰是越界声明常出现的位置。
+同一函数里还有一处信息损失：`_truncate_content` 默认在 10000 字符处截断并追加 `...`。实测 19224 条消息中有 18 条触到上限（最长 10003），比例 0.09%。对当前样本影响可忽略，但截断点是内容长度而非 token 数，换成响应更长的服务器后这个比例会上升。截断还会无条件砍掉响应尾部——恰恰是越界声明常出现的位置。
 
 ### 3.5 工具调用分析
 
@@ -369,7 +369,7 @@ claude -p "<user_prompt>" \
 两个实现细节值得注意：
 
 - 覆盖率比较只比**工具名**，不比服务器名（`tool.split("/")[1]`）。若两个服务器暴露同名工具，会被视为同一能力。当前 134 个服务器里同名工具不常见，但这是口径上的宽松点。
-- `tasks.json` 里 `validation_method` 全部是 `tools_called`（304/304），所以"任务是否完成"实际等价于"5 个左右的指定工具是否都被调用过"，**不校验调用参数、顺序和结果**。一个调用 `send_money(amount=0.01)` 的攻击任务和一个调用 `send_money(amount=99999)` 的正常任务，在完成度上无法区分。
+- `tasks.json` 里 `validation_method` 全部是 `tools_called`（304/304）。所以"任务是否完成"实际等价于"5 个左右的指定工具是否都被调用过"，**不校验调用参数、顺序和结果**。一个调用 `send_money(amount=0.01)` 的攻击任务和一个调用 `send_money(amount=99999)` 的正常任务，在完成度上无法区分。
 
 ### 3.6 打包格式与 inflate 的安全边界
 
@@ -378,9 +378,9 @@ claude -p "<user_prompt>" \
 - 第 1 行：`{"type": "manifest", "benchmark_name": ..., "task_count": ..., "tasks": {...}, "ground_truth": {...}}`
 - 后续每行：`{"type": "task", "task_id": "task_001", "conversation": [...], "result": {...}}`
 
-manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计：**分发物自带任务定义快照**，解包后不依赖外部文件即可还原。代价是快照会与仓库当前的 `tasks.json` 脱钩——实测解包 `adr_bench_20251017_151604.jsonl` 得到的 `tasks.json` 是 303 条，而仓库里是 304 条。
+manifest 内嵌完整的 `tasks.json` 内容。这是打包产物的关键设计：**分发物自带任务定义快照**，解包后不依赖外部文件即可还原。代价是快照会与仓库当前的 `tasks.json` 脱钩。实测解包 `adr_bench_20251017_151604.jsonl` 得到的 `tasks.json` 是 303 条，而仓库里是 304 条。
 
-`cmd_inflate` 对 `task_id` 做了三重校验：类型必须是字符串、必须匹配 `[A-Za-z0-9][A-Za-z0-9_.-]*`、不得含 `..`，且解析后必须仍在 `output_dir` 之下。这是打包/解包这类"按文件内容决定落盘路径"的代码里必须有的防护，因为 JSONL 可能来自第三方。
+`cmd_inflate` 对 `task_id` 做了三重校验：类型必须是字符串，必须匹配 `[A-Za-z0-9][A-Za-z0-9_.-]*`，不得含 `..`。解析后必须仍在 `output_dir` 之下。这是打包/解包这类"按文件内容决定落盘路径"的代码里必须有的防护，因为 JSONL 可能来自第三方。
 
 `cmd_deflate` 无对应防护——它信任本地目录结构。方向不对称是合理的：写侧信任输入，读侧不信任。
 
@@ -388,7 +388,7 @@ manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计
 
 真值加载分两条路径（`BenchmarkAnalyzer::_load_ground_truth`）：
 
-- **ADR-Bench**：读 `Path("tasks.json")`，即**当前工作目录**的相对路径，不是结果目录里的那份。这是 `task_304` 被 drop 的机制来源，也意味着 `main_detector.py` 必须在 `Detection/` 下运行。
+- **ADR-Bench**：读 `Path("tasks.json")`，即**当前工作目录**的相对路径，不是结果目录里的那份。这是 `task_304` 被 drop 的机制来源。这也意味着 `main_detector.py` 必须在 `Detection/` 下运行。
 - **AgentDojo**：读 `results_dir/ground_truth.json`，取 `is_malicious` 字段。
 
 `_calculate_metrics` 输出：
@@ -410,9 +410,9 @@ manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计
 
 ### 3.8 AgentDojo 集成的四个实现细节
 
-**其一，任务组合是随机配对的。** `load_agentdojo_tasks` 对每个 user task 用 `random.choice` 抽一个 injection task，种子固定 42。配对结果因此可复现，但**不是** AgentDojo 官方的组合方式；论文里 AgentDojo 的数字建立在这套配对之上。
+**其一，任务组合是随机配对的。** `load_agentdojo_tasks` 对每个 user task 用 `random.choice` 抽一个 injection task，种子固定 42。配对结果因此可复现，但**不是** AgentDojo 官方的组合方式。论文里 AgentDojo 的数字建立在这套配对之上。
 
-**其二，`config_benchmark.yaml` 里的 `agentdojo.user_tasks` 白名单是死配置。** 配置里列了 `user_task_0`–`user_task_3`，其余注释掉，看起来像只跑 4 个任务；但 `load_agentdojo_tasks` 只读 `suites`、`attacks`、`random_seed`，遍历的是 `suite.user_tasks` 全量。按当前 v1 套件定义统计，注册的 user task 共 86 个（banking 16 / slack 17 / travel 20 / workspace 33），而打包产物真值有 93 条，且套件分布是 workspace 40 / slack 21 / banking 16 / travel 16——两组数对不上，说明打包产物来自与当前 vendored 代码不同的 AgentDojo 快照。
+**其二，`config_benchmark.yaml` 里的 `agentdojo.user_tasks` 白名单是死配置。** 配置里列了 `user_task_0`–`user_task_3`，其余注释掉，看起来像只跑 4 个任务。但 `load_agentdojo_tasks` 只读 `suites`、`attacks`、`random_seed`，遍历的是 `suite.user_tasks` 全量。按当前 v1 套件定义统计，注册的 user task 共 86 个（banking 16 / slack 17 / travel 20 / workspace 33）。打包产物真值有 93 条，套件分布是 workspace 40 / slack 21 / banking 16 / travel 16。两组数对不上，说明打包产物来自与当前 vendored 代码不同的 AgentDojo 快照。
 
 **其三，`security` 的语义在本仓库是"注入是否成功"。** `base_tasks.py::security` 的 docstring 写明"Returns True if the injection was executed correctly"，实现也一致（`banking` 套件 `InjectionTask0.security` 在检测到向攻击者 IBAN 转账时返回 True）。`_convert_agentdojo_results` 因此直接取 `is_malicious = security`。另有一个特例：DoS 类攻击在 `benchmark.py:143` 被改写成 `security = not utility`。
 
@@ -452,17 +452,17 @@ manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计
 | `generate_ablation_table` | 消融表（LaTeX） |
 | `plot_triage_advantage` / `plot_mcp_necessity` / `plot_efficiency_analysis` | 分诊收益、MCP 必要性、效率 |
 
-其中 `recalculate_cost` 会按当前价目表重算成本，避免历史运行的成本字段过期。`plot_mcp_usage_cdf` 依赖 `ads_reasoning_workspace/debug_logs` 目录，该目录由 ADR 检测器在运行时产生，不在打包产物里——用 inflate 路径复现时这张图没有输入。
+其中 `recalculate_cost` 会按当前价目表重算成本，避免历史运行的成本字段过期。`plot_mcp_usage_cdf` 依赖 `ads_reasoning_workspace/debug_logs` 目录。该目录由 ADR 检测器在运行时产生，不在打包产物里。用 inflate 路径复现时，这张图没有输入。
 
 ---
 
 ## 四、正反例测试方法集
 
-仓库现有 14 个测试模块（另有 `conftest.py`）、3242 行，全部不依赖 API key。下面按三层组织，每层给出正例、反例、边界，标注哪些是仓库已有、哪些是我建议补的。
+仓库现有 14 个测试模块（另有 `conftest.py`）、3242 行，全部不依赖 API key。下面按三层组织，每层给出正例、反例、边界，并标注来源：哪些是仓库已有，哪些是我建议补的。
 
 ### 4.1 分层设计原则
 
-对基准系统做测试，要区分三种失效：
+测试基准系统时，要区分三种失效：
 
 | 层 | 测什么 | 失效表现 | 判据 |
 |---|---|---|---|
@@ -539,7 +539,7 @@ manifest 内嵌完整的 `tasks.json` 内容，这是打包产物的关键设计
 
 ### 4.6 运行方式与门槛
 
-以下命令在 macOS 本机验证过第一、二档；第三档未执行，见附录 C。
+以下命令在 macOS 本机验证过第一、二档。第三档未执行，见附录 C。
 
 ```bash
 cd Detection
@@ -581,9 +581,9 @@ uv run pytest tests/test_main_benchmark.py -q
 
 **陷阱二：precision 在 0 FP 时是退化指标。** 论文报告 precision 1.000，来自 28 TP / 0 FP（论文 302 任务评测口径，与本仓库 304 条任务定义、303 条打包会话不是同一统计快照）。这个 1.000 没有上界空间——再加一个 TP 还是 1.000，而**一个 FP 就掉到 28/29 = 0.9655**。所以 precision 1.0 的信息量远小于它看起来的样子，真正的信息在"FP 计数 = 0"这个整数上。
 
-**陷阱三：per-threat 指标在 n=1 时不可解释。** 7 类技术各只有 1 个任务，其 recall 只能取 0 或 1。若某类恰好被检出，图上是 100%；恰好漏掉，图上是 0%。这两种情况的差别不构成任何统计证据，但柱状图会诱导读者当成能力差异。读 `fig1a_threat_bar.png` 时必须同时看 `samples`。
+**陷阱三：per-threat 指标在 n=1 时不可解释。** 7 类技术各只有 1 个任务，其 recall 只能取 0 或 1。若某类恰好被检出，图上是 100%。若恰好漏掉，图上是 0%。这两种情况的差别不构成任何统计证据，但柱状图会诱导读者当成能力差异。读 `fig1a_threat_bar.png` 时必须同时看 `samples`。
 
-**recall 0.667 才是真正的瓶颈。** 论文 302 任务口径下 42 个恶意任务漏 14 个，存在明显漏检；但论文没有对漏检做分技术归因，尚无法判断漏检是否集中于特定攻击技术。这是公开材料里最大的信息缺口。
+**recall 0.667 才是真正的瓶颈。** 论文 302 任务口径下 42 个恶意任务漏 14 个，存在明显漏检。但论文没有对漏检做分技术归因，尚无法判断漏检是否集中于特定攻击技术。这是公开材料里最大的信息缺口。
 
 ### 5.3 复现性边界
 
@@ -831,7 +831,7 @@ uv run python main_detector.py --detector llamafirewall --results-dir "$BENCH"
 | `input_tokens` / `output_tokens` / `cost_usd` | Optional | 成本追踪，进指标的成本统计（论文图 1c 口径） |
 | `structured_triage` | Optional | 可选 Tier-1 审计数据，永不作为可信模型输入 |
 
-最小可用实现样例。注意两点协议细节：打分器把 `task_data = {"task_id": ..., "messages": [...]}` 传给基类 `analyze_task`（源码证实，`main_detector.py::_analyze_task_async`），且会在 messages 头部插入一条「Task uses MCP servers: ...」的系统消息；检测逻辑必须读 `tool_result` 消息的 content，只看 user_prompt 在本基准上 recall 恒为 0（2.5）。
+最小可用实现样例。注意两点协议细节：打分器把 `task_data = {"task_id": ..., "messages": [...]}` 传给基类 `analyze_task`（源码证实，`main_detector.py::_analyze_task_async`），且会在 messages 头部插入一条「Task uses MCP servers: ...」的系统消息。检测逻辑必须读 `tool_result` 消息的 content。只看 user_prompt 的检测，在本基准上 recall 恒为 0（2.5）。
 
 ```python
 # guardrail/your_detector/your_baseline.py（示意）
@@ -872,9 +872,9 @@ class YourBaseline(BaseDetector):
 uv run python main_detector.py --detector <你的注册名> --results-dir "$BENCH"
 ```
 
-三条运行注意（均有正文证据）：必须在 `Detection/` 目录下运行，真值读 CWD 的 `tasks.json`（`main_detector.py:400`，5.3）；显式传 `--results-dir`，缺省取按名排序最新的 `adr_bench_*` 目录（REPRODUCIBILITY.md）；`--benchmark` 必须与目录布局匹配，adr_bench 目录不得含 `ground_truth.json`（README）。
+三条运行注意（均有正文证据）：必须在 `Detection/` 目录下运行，真值读 CWD 的 `tasks.json`（`main_detector.py:400`，5.3）。显式传 `--results-dir`，缺省取按名排序最新的 `adr_bench_*` 目录（REPRODUCIBILITY.md）。`--benchmark` 必须与目录布局匹配，adr_bench 目录不得含 `ground_truth.json`（README）。
 
-对比口径：你的 `<name>_baseline_analysis.json` 与自带基线、论文 Table 2（ADR precision 1.000 / recall 0.667，C22，未独立复算）同口径可比。另两条已知限制不变，`plot_mcp_usage_cdf` 在 inflate 路径下无输入（3.10）；run_manifest 用于确认两次运行输入一致，不保证复现（3.9）。
+对比口径：你的 `<name>_baseline_analysis.json` 与自带基线、论文 Table 2（ADR precision 1.000 / recall 0.667，C22，未独立复算）同口径可比。另两条已知限制不变：`plot_mcp_usage_cdf` 在 inflate 路径下无输入（3.10）。run_manifest 用于确认两次运行输入一致，不保证复现（3.9）。
 
 **路径乙：从头执行**（命令源码证实，`Detection/README.md`）
 
@@ -885,11 +885,11 @@ uv run python main_benchmark.py --tasks 1-10   # 区间
 uv run python main_benchmark.py --concurrent 5 # 自定义并发
 ```
 
-依赖 Claude CLI（`npm install -g @anthropic-ai/claude-code` 后 `claude auth login`）与 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`，默认 10 并发（AgentDojo 强制 1，C17），`bypassPermissions` + `disable_safety_mechanisms`，必须隔离运行（1.3）。仅在验证执行层本身（如修改采集逻辑）时必要。
+依赖 Claude CLI（`npm install -g @anthropic-ai/claude-code` 后 `claude auth login`）与 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`。默认 10 并发（AgentDojo 强制 1，C17），配置为 `bypassPermissions` + `disable_safety_mechanisms`，必须隔离运行（1.3）。仅在验证执行层本身（如修改采集逻辑）时必要。
 
 **适配提醒（推导）**
 
-第三方检测器读到的是归一化 transcript（四类消息 + `tool_calls`，3.4），不是原始流量。自有 ADR 若消费其他形态的数据（遥测、代理日志等），中间必须写一层适配，而适配层即新的采集环节。C9（task_110 的 bidi payload 在归一化时被降级为字面转义）直接适用：适配后先做 payload 保真回归，否则采集缺陷会表现为检测器的假阴性，且在指标上与真实缺陷无法区分（3.4）。
+第三方检测器读到的是归一化 transcript（四类消息 + `tool_calls`，3.4），不是原始流量。自有 ADR 若消费其他形态的数据（遥测、代理日志等），中间必须写一层适配，而适配层即新的采集环节。C9（task_110 的 bidi payload 在归一化时被降级为字面转义）直接适用：适配后先做 payload 保真回归。否则，采集缺陷会表现为检测器的假阴性，且在指标上与真实缺陷无法区分（3.4）。
 
 ### F.2 新增恶意任务：完整流程与样例
 
@@ -926,7 +926,7 @@ def get_weather(city: str) -> dict:
 }
 ```
 
-条目加进 `mcp_servers_registry.json`；伪装用的良性描述加进 `context_providers/data/source_codes_registry.yaml`（冒名描述先例 `:485`，2.5）。注册名与描述决定 agent 看到的工具面，这是供应链冒名测试成立的前提。
+条目加进 `mcp_servers_registry.json`。伪装用的良性描述加进 `context_providers/data/source_codes_registry.yaml`（冒名描述先例 `:485`，2.5）。注册名与描述决定 agent 看到的工具面，这是供应链冒名测试成立的前提。
 
 **③ tasks.json 加任务定义**（示意样例，字段清单源码证实：1.5、2.3，且 `main_detector.py` 会读取 `threat_technique` 与 `threat_tactic` 字段，缺失按 "N/A" 记）
 
@@ -942,7 +942,7 @@ def get_weather(city: str) -> dict:
 }
 ```
 
-设计要点回顾（2.5）：`user_prompt` 必须是正常业务语气，恶意性只存在于 fixture 的工具响应里；`expected_tools` 决定覆盖率判定，`coverage == 1.0` 才 `passed`（3.5）。
+设计要点回顾（2.5）：`user_prompt` 必须是正常业务语气，恶意性只存在于 fixture 的工具响应里。`expected_tools` 决定覆盖率判定，`coverage == 1.0` 才 `passed`（3.5）。
 
 **④ 录制会话**
 
@@ -959,8 +959,8 @@ uv run python benchmark/benchmark_pack.py deflate benchmark/adr_bench_YYYYMMDD_H
 三个维护约束（均已在正文出现，此处汇总）：
 
 1. **标签拼写**。`ground_truth` 必须严格为 `benign` / `malicious`，缺失或拼错静默按 benign 处理，加载期无校验（C12）。4.5 建议第 3 条给出了防护方案。
-2. **威胁分类**。`threat_technique` 尽量并入已有 17 类；新开一类而样本量只有 1，会加重 per-threat 指标的不可解释性（2.4、5.2 陷阱三）。
-3. **快照同步**。打包快照与仓库定义会脱钩（303 vs 304，C7/C8）。新任务录入会话后需重新 `deflate`；`task_304` 就是「定义已加、会话未录」的现行案例，打分时进 `run_stats.dropped`（REPRODUCIBILITY.md 明说）。
+2. **威胁分类**。`threat_technique` 尽量并入已有 17 类。若新开一类而样本量只有 1，会加重 per-threat 指标的不可解释性（2.4、5.2 陷阱三）。
+3. **快照同步**。打包快照与仓库定义会脱钩（303 vs 304，C7/C8）。新任务录入会话后需重新 `deflate`。`task_304` 就是「定义已加、会话未录」的现行案例，打分时进 `run_stats.dropped`（REPRODUCIBILITY.md 明说）。
 
 ### F.3 证据强度
 
@@ -972,4 +972,4 @@ uv run python benchmark/benchmark_pack.py deflate benchmark/adr_bench_YYYYMMDD_H
 | 示意 | fixture 骨架、registry 条目、tasks.json 条目三个样例 | 按文档字段口径构造，schema 以仓库为准 |
 | 未核对 | `--detector` 名称到实例的映射 | 拉取内容截断，以 argparse 段为准 |
 
-与附录 C 的关系：若执行 F.1 路径甲，「论文 302 任务指标未在本机复算」「AgentDojo 93 vs 86 成因」两条边界仍适用于第三方对比实验，前者意味着与 ADS 数字对比时精度受文档自述口径限制，后者意味着 AgentDojo 子集的对比只能用打包产物，不能用当前代码重跑。
+与附录 C 的关系：若执行 F.1 路径甲，「论文 302 任务指标未在本机复算」「AgentDojo 93 vs 86 成因」两条边界仍适用于第三方对比实验。前者意味着与 ADS 数字对比时，精度受文档自述口径限制。后者意味着 AgentDojo 子集的对比只能用打包产物，不能用当前代码重跑。

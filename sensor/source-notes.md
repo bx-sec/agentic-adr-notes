@@ -58,7 +58,7 @@
 
 ### 1.1 设计动机：可观测性鸿沟
 
-ADR 论文（arXiv:2605.17380，MLSys 2026）指出企业 AI 代理安全面临三大持续挑战，Sensor 直接解决第一个：
+ADR 论文（arXiv:2605.17380，MLSys 2026）指出，企业 AI 代理安全面临三大持续挑战。Sensor 直接解决其中第一个：
 
 > **有限的可观测性** —— 现有 EDR 工具能看到文件写入，但看不到代理推理、prompt 或连接意图与执行的因果链。
 
@@ -97,7 +97,7 @@ Discovery 回答"端点上有哪些 AI 工具"，Sensor 回答"这些工具在�
 | 时间维度 | 快照时刻 | 回溯窗口（默认 14 天） |
 | 下游消费者 | 安全审查、资产登记 | 威胁检测、安全监控 |
 
-Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor 解析 `~/.claude/projects/` 下的 JSONL transcripts，还原 Claude Code 的完整会话历史。
+Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code。Sensor 解析 `~/.claude/projects/` 下的 JSONL transcripts，还原 Claude Code 的完整会话历史。
 
 ---
 
@@ -149,7 +149,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 | Gemini CLI | `gemini` | JSONL journals + legacy JSON | macOS, Linux, Windows | 14 天 |
 | Google Antigravity | `antigravity` | JSONL transcript | macOS, Linux, Windows | 14 天 |
 
-**平台自动跳过**：不支持当前操作系统的来源会被自动跳过。例如 Linux 上 `--source all` 不会尝试 `claude_desktop`（仅 macOS/Windows）。`PLATFORM_RESTRICTED_SOURCES` 映射控制此行为。
+**平台自动跳过**：Sensor 自动跳过不支持当前操作系统的来源。例如 Linux 上 `--source all` 不会尝试 `claude_desktop`（仅 macOS/Windows）。`PLATFORM_RESTRICTED_SOURCES` 映射控制此行为。
 
 ### 2.4 四维遥测模型
 
@@ -162,7 +162,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 | MCP 工具调用 | 工具调用序列、参数、结果 | **行为**（代理实际做了什么） | `chat_history[].tools[]` |
 | 环境上下文 | MCP 配置、权限模式、模型 | **能力**（代理可用的功能范围） | `session_context` |
 
-> **重要边界**：Sensor 采集的是各代理已持久化到本地的日志或数据库。不同来源对 thinking、工具进度、工具结果、历史分支和内容截断的记录并不相同。因此，`chat_history[].content`（role=assistant）不能一概等同于完整推理过程，日志中的 tool result 也不能单独证明操作已对操作系统产生了预期效果。Sensor 提供的是支持意图/行为分析的语义遥测数据，判断行为是否偏离用户意图、是否构成威胁，是 Detector 组件的职责。
+> **重要边界**：Sensor 采集的是各代理已持久化到本地的日志或数据库。不同来源对 thinking、工具进度、工具结果、历史分支和内容截断的记录并不相同。因此，`chat_history[].content`（role=assistant）不能一概等同于完整推理过程。日志中的 tool result 也不能单独证明操作已对操作系统产生了预期效果。Sensor 提供的是支持意图/行为分析的语义遥测数据。判断行为是否偏离用户意图、是否构成威胁，是 Detector 组件的职责。
 
 **因果链示例**：
 
@@ -180,7 +180,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 代理响应: "这个 ticket 是关于..."
 ```
 
-如果因果链断裂——用户要求"总结 Jira ticket"但代理调用了 `read_file("~/.ssh/id_rsa")`——Sensor 采集的遥测数据会暴露这种偏离，供 Detector 进一步判断是否构成威胁。
+如果因果链断裂——用户要求"总结 Jira ticket"但代理调用了 `read_file("~/.ssh/id_rsa")`——Sensor 采集的遥测数据会暴露这种偏离。Detector 可据此进一步判断是否构成威胁。
 
 ---
 
@@ -237,7 +237,7 @@ Discovery 发现 `~/.claude` 目录存在，说明安装了 Claude Code；Sensor
 
 #### 3.2.1 核心结构
 
-每个解析的 session 生成一个 `AgentEvent`。AgentEvent 是 **Session 级记录**，不是逐条行为事件流——一个 AgentEvent 包含整个会话的 `chat_history`（消息数组 + 工具调用），OTLP 导出也将每个 AgentEvent 作为一条 `adr.agent.session` LogRecord 发送。一次性采集生成当前日志的全量快照；`--save-sessions` 的增量更新是按 session 粒度的快照刷新，不是实时事件流。
+每个解析的 session 生成一个 `AgentEvent`。AgentEvent 是 **Session 级记录**，不是逐条行为事件流。一个 AgentEvent 包含整个会话的 `chat_history`（消息数组 + 工具调用）。OTLP 导出也将每个 AgentEvent 作为一条 `adr.agent.session` LogRecord 发送。一次性采集生成当前日志的全量快照。`--save-sessions` 的增量更新是按 session 粒度的快照刷新，不是实时事件流。
 
 以下为完整字段示例：
 
@@ -472,7 +472,7 @@ class AgentObserver:
     )
 ```
 
-`ingest_all()` 遍历 `SOURCES`，通过 `self.<source>_parser` 查找解析器实例，无需 per-source 分支。`PLATFORM_RESTRICTED_SOURCES` 列表控制平台限制来源。
+`ingest_all()` 遍历 `SOURCES`，通过 `self.<source>_parser` 查找解析器实例。此过程无需 per-source 分支。`PLATFORM_RESTRICTED_SOURCES` 列表控制平台限制来源。
 
 CLI 自动从 `SOURCES` 构建 `--source` 选项。
 
@@ -792,7 +792,7 @@ for event in events:
   - 通过 tool-call ID 匹配结果
   - 跳过格式错误的记录但不丢弃周围消息
   - 支持同一物理行拼接的完整 JSON 对象和对象间的 NUL 填充
-  - 不完整的尾部被跳过，不连接物理行或修复消息内文本
+  - 解析器跳过不完整的尾部，不连接物理行，也不修复消息内文本
 - **元数据**：每个事件包含 `raw_log_path`、稳定的对话起始 `timestamp`、`session_context.last_event_at` 和 `event_count`
 - **默认回溯**：14 天（按文件修改时间）
 - **截断限制**：顶层工具参数字符串和工具结果在 1,000 字符处截断
@@ -816,7 +816,7 @@ for event in events:
 | Linux | `~/.config/<Editor>/User/globalStorage/saoudrizwan.claude-dev/tasks/` |
 | Windows | `%APPDATA%\<Editor>\User\globalStorage\saoudrizwan.claude-dev\tasks\` |
 
-- **处理**：扫描所有候选目录，规范化用户提示和助手工具使用（包括 `<use_mcp_tool>` 调用），跨编辑器去重
+- **处理**：扫描所有候选目录。规范化用户提示和助手工具使用（包括 `<use_mcp_tool>` 调用）。跨编辑器去重
 - **默认回溯**：14 天（按 task 文件修改时间）
 - **自定义**：`ClineParser(base_path=...)` 限制单个 task 目录
 
@@ -838,7 +838,7 @@ for event in events:
 - **去重**：catalog 和文件系统路径去重
 - **过滤**：使用文件修改时间和 catalog 更新时间戳中较新者
 - **默认回溯**：14 天
-- **自定义**：`max_age_days` 参数；值 ≤ 0 禁用年龄过滤
+- **自定义**：`max_age_days` 参数。值 ≤ 0 禁用年龄过滤
 
 ### 4.6 GitHub Copilot CLI
 
@@ -859,7 +859,7 @@ for event in events:
 
 - **日志路径**：`$DSH_HOME/sessions/`（默认 `~/.dsh/sessions/`）
 - **格式**：默认 Zstandard 压缩日志，也支持未压缩的 JSONL v3 日志
-- **Generation 处理**：一个 session 目录有多代日志时，仅考虑最高 generation，且仅在 v3 格式时导入
+- **Generation 处理**：一个 session 目录有多代日志时，仅考虑最高 generation。仅在 v3 格式时导入
 - **规范化内容**：工具参数和结果、PTC 子调度、失败状态、批准、provider/model 上下文、沙箱模式、权限预设、类型化消息内容、token 使用量
 - **默认回溯**：14 天
 - **命令**：`adr-sensor --source dsh`
@@ -877,7 +877,7 @@ for event in events:
   1. **SQLite（当前版本）**：`opencode.db` 或 `opencode-<channel>.db`（非稳定频道），只读打开
      - 仅当包含 `session`、`message` 和 `part` 表时使用
   2. **JSON 文件树（旧版本）**：`storage/` 目录，包含 per-session、per-message 和 per-part JSON 文件
-- **MCP 工具命名**：opencode 将 MCP 工具命名为 `<server>_<tool>`，含下划线的非内置工具记为 `tool_type: "mcp_tool"` 并填充 `server_name`
+- **MCP 工具命名**：opencode 将 MCP 工具命名为 `<server>_<tool>`。含下划线的非内置工具记为 `tool_type: "mcp_tool"`，并填充 `server_name`
 
 ### 4.10 Gemini CLI
 
@@ -903,10 +903,10 @@ for event in events:
   - `session_context.history_scope` 为 `all_recorded_branches`
   - 不添加任何脱敏或截断
 - **不收集的内容**：仅 prompt 的 `logs.json`、编辑器聊天存储、shell 历史、未保存会话、这些根之外的文件
-- **MCP 调用**：显式 `mcp_`/限定工具名标识 MCP 调用；记录名模糊时 server 归属留空
-- **默认回溯**：14 天（按文件修改时间）；`--all-history` 包含更旧文件
+- **MCP 调用**：显式 `mcp_`/限定工具名标识 MCP 调用。记录名模糊时，server 归属留空
+- **默认回溯**：14 天（按文件修改时间）。`--all-history` 包含更旧文件
 - **契约验证**：对照上游 record types、journal writer、storage paths、supported platforms 验证
-- **测试**：使用合成记录，匹配这些契约，在所有三个 host 上运行；不需要 Gemini 账户
+- **测试**：使用合成记录，匹配这些契约，在所有三个 host 上运行。测试不需要 Gemini 账户
 
 ### 4.11 Google Antigravity
 
@@ -921,11 +921,11 @@ for event in events:
 - **Legacy 路径**：`~/.antigravity/brain/`、`%APPDATA%\Google\Antigravity\brain\`、`~/Library/Application Support/Google/Antigravity/brain/`、`~/.config/google/antigravity/brain/`
 - **环境变量**：`ANTIGRAVITY_HOME` 和 `AGY_HOME` 作为存储覆盖
 - **每个对话目录**：`.system_generated/logs/transcript.jsonl` + 可选 `transcript_full.jsonl`
-- **Transcript 选择**：比较可用快照，选择最新记录修订版；同一修订版优先选择未截断数据和完整 transcript
+- **Transcript 选择**：比较可用快照，选择最新记录修订版。同一修订版优先选择未截断数据和完整 transcript
 - **Step Types**：`USER_INPUT`（用户提示）、`PLANNER_RESPONSE`（助手输出 + `thinking` 文本 + 工具调用）、`GENERIC`（模型输出）
 - **Thinking 文本**：以 `[Thinking]` 标签保留
-- **工具规范化**：原生工具直接记录；MCP 调用（如 `mcp_<server>_<tool>` 或 `<server>:<tool>`）解析填充 `server_name` 和 `tool_name`
-- **数据保留**：不截断工具参数或字符串化嵌套值；若源 transcript 报告 `truncated_fields`，标记 `is_truncated`
+- **工具规范化**：原生工具直接记录。MCP 调用（如 `mcp_<server>_<tool>` 或 `<server>:<tool>`）解析后填充 `server_name` 和 `tool_name`
+- **数据保留**：不截断工具参数或字符串化嵌套值。若源 transcript 报告 `truncated_fields`，标记 `is_truncated`
 - **默认回溯**：14 天
 
 ---
@@ -1059,7 +1059,7 @@ with open('./test-tools/agent_event_logs.jsonl') as f:
 "
 ```
 
-**预期结果**：捕获的工具调用数量 > 0，每个工具调用包含 `tool_name`、`tool_type`、`arguments` 字段。
+**预期结果**：捕获的工具调用数量 > 0。每个工具调用包含 `tool_name`、`tool_type`、`arguments` 字段。
 
 #### P-05: 增量保存（--save-sessions）
 
@@ -1133,7 +1133,7 @@ for line in sys.stdin:
 "
 ```
 
-**预期结果**：诊断文件包含 schema_version、event、status 字段，不含 password/api_key/token 等敏感信息。
+**预期结果**：诊断文件包含 schema_version、event、status 字段。文件不含 password/api_key/token 等敏感信息。
 
 ### 5.3 反例测试集
 
@@ -1141,7 +1141,7 @@ for line in sys.stdin:
 
 #### N-01: 无日志的来源
 
-**目的**：验证未安装的代理被正确处理为 `no_input` 状态。
+**目的**：验证 Sensor 将未安装的代理正确处理为 `no_input` 状态。
 
 **步骤**：
 
@@ -1164,7 +1164,7 @@ for line in sys.stdin:
 
 #### N-02: 格式错误的日志文件
 
-**目的**：验证解析器对损坏日志的容错能力。
+**目的**：验证解析器能容错处理损坏日志。
 
 **步骤**：
 
@@ -1192,14 +1192,14 @@ except FileNotFoundError:
 ```
 
 **预期结果**：
-- 损坏的行被跳过，不导致整个文件解析失败
-- 有效行仍被解析为 AgentEvent
+- 解析器跳过损坏的行，不导致整个文件解析失败
+- 解析器仍将有效行解析为 AgentEvent
 - 诊断状态为 `partial`（有错误但有可用输出）
 - `--fail-on-error` 时退出码非零
 
 #### N-03: 不支持的来源
 
-**目的**：验证传入不存在的 source key 被正确拒绝。
+**目的**：验证 CLI 正确拒绝不存在的 source key。
 
 **步骤**：
 
@@ -1264,7 +1264,7 @@ print(f'Events with no permission: {len(events)}')
 chmod 644 /tmp/no-permission/projects/test.jsonl
 ```
 
-**预期结果**：权限不足的文件被跳过，不导致整个解析失败，诊断记录 `denied` 或类似状态。
+**预期结果**：解析器跳过权限不足的文件，整个解析不失败。诊断记录 `denied` 或类似状态。
 
 #### N-06: 超大日志文件
 
@@ -1302,11 +1302,11 @@ time adr-sensor --source claude --output-dir ./test-large --output-format jsonl 
 echo "Exit code: $?"
 ```
 
-> **路径说明**：`ClaudeParser.__init__` 只接受 `max_age_days`，`base_path` 固定为 `~/.claude/projects/`，既不接受 `base_path` 参数，也不支持环境变量覆盖（与 `GeminiParser` 的 `GEMINI_CLI_HOME` 不同）。因此隔离测试只能在该目录下建子目录；上述步骤会写入真实 Claude Code 日志目录，测试后应删除 `~/.claude/projects/large-test/`。
+> **路径说明**：`ClaudeParser.__init__` 只接受 `max_age_days`，`base_path` 固定为 `~/.claude/projects/`，既不接受 `base_path` 参数，也不支持环境变量覆盖（与 `GeminiParser` 的 `GEMINI_CLI_HOME` 不同）。因此隔离测试只能在该目录下建子目录。上述步骤会写入真实 Claude Code 日志目录，测试后应删除 `~/.claude/projects/large-test/`。
 
 **预期结果**：
 - 大文件不导致内存溢出或超时
-- 100,000 条记录被聚合为 1 个 session 级 AgentEvent
+- 解析器将 100,000 条记录聚合为 1 个 session 级 AgentEvent
 - 处理完成或 `partial` 状态
 
 #### N-07: OTLP 导出无可用 endpoint
@@ -1390,7 +1390,7 @@ echo "all-history events: $(wc -l < ./test-all-history/*.jsonl 2>/dev/null || ec
 
 #### B-02: 跨平台自动跳过
 
-**目的**：验证不支持当前操作系统的来源被自动跳过。
+**目的**：验证 Sensor 自动跳过不支持当前操作系统的来源。
 
 **步骤**：
 
@@ -1414,7 +1414,7 @@ print(f'OK: claude_desktop not in sources ({sources_seen})')
 "
 ```
 
-> **说明**：`PLATFORM_RESTRICTED_SOURCES` 目前只包含 `claude_desktop`（Darwin/Windows）。被它命中的来源在 `ingest_all()` 循环中直接 `continue`，不会出现在诊断记录中。`warp` 虽有平台限制（仅 macOS/Windows 有数据库路径），但不在该映射里，在 Linux 上会被尝试解析并产生 `no_input`，不属于平台跳过。
+> **说明**：`PLATFORM_RESTRICTED_SOURCES` 目前只包含 `claude_desktop`（Darwin/Windows）。该映射命中的来源在 `ingest_all()` 循环中直接 `continue`，不会出现在诊断记录中。`warp` 虽有平台限制（仅 macOS/Windows 有数据库路径），但不在该映射里。Linux 上 Sensor 会尝试解析 `warp` 并产生 `no_input`，这不属于平台跳过。
 
 **预期结果**：平台限制来源在不适用的操作系统上不出现在处理列表中。
 
@@ -1453,13 +1453,13 @@ with open('./test-subagent/agent_event_logs.jsonl') as f:
 "
 ```
 
-> **手工检查标记**：如果当前环境没有子代理会话日志（`subagents/` 目录不存在），此测试无法自动验证，应标记为手工检查——需要先使用 Claude Code 子代理功能生成测试日志。
+> **手工检查标记**：如果当前环境没有子代理会话日志（`subagents/` 目录不存在），此测试无法自动验证。此时应标记为手工检查，先使用 Claude Code 子代理功能生成测试日志。
 
 **预期结果**：子代理 session_id 包含 `_agent_` 后缀，与父会话关联。
 
 #### B-04: MCP 工具调用识别
 
-**目的**：验证 MCP 工具调用被正确标记为 `tool_type: "mcp_tool"` 并填充 `server_name`。
+**目的**：验证 Sensor 将 MCP 工具调用正确标记为 `tool_type: "mcp_tool"`，并填充 `server_name`。
 
 **步骤**：
 
@@ -1491,7 +1491,7 @@ print(f'MCP tools: {len(mcp_tools)} (with server_name: {mcp_with_server}, withou
 
 > **说明**：`server_name` 字段应存在于 `mcp_tool` 类型的工具调用中（源码 `ToolUsage` dataclass 定义 `server_name: Optional[str] = None`）。值为 `None` 表示记录名模糊时无法归属 MCP server，但字段本身应存在。此断言验证字段存在性而非值非空。
 
-**预期结果**：MCP 工具被标记为 `mcp_tool` 类型，`server_name` 已填充或留空（记录名模糊时）。
+**预期结果**：Sensor 将 MCP 工具标记为 `mcp_tool` 类型。`server_name` 已填充，记录名模糊时留空。
 
 #### B-05: `--fail-on-error` 退出码
 
@@ -1526,9 +1526,9 @@ fi
 rm -rf "$CORRUPT_DIR"
 ```
 
-> **CLI 行为**：`cli.py` 中 `--fail-on-error` 的实现是在 `observer.has_errors is True` 时执行 `raise SystemExit(1)`。`has_errors` 在诊断写入失败，或任一诊断记录状态为 `partial`/`failed` 时为真。OTLP 导出失败也会触发 `SystemExit(1)`。
+> **CLI 行为**：在 `cli.py` 中，`--fail-on-error` 在 `observer.has_errors is True` 时执行 `raise SystemExit(1)`。`has_errors` 在诊断写入失败，或任一诊断记录状态为 `partial`/`failed` 时为真。OTLP 导出失败也会触发 `SystemExit(1)`。
 
-**预期结果**：有解析错误时 `--fail-on-error` 返回非零退出码，无错误时返回 0。
+**预期结果**：有解析错误时，`--fail-on-error` 返回非零退出码。无错误时返回 0。
 
 ### 5.5 测试运行方式
 
@@ -1589,7 +1589,7 @@ uv run pytest tests/ -v
 
 #### 5.5.3 CI 工作流
 
-截至 `uber/ADR@6b33dff`（2026-10-16），仓库中与 Sensor 相关的实际 CI 工作流为 `.github/workflows/sensor-gemini.yml`，其配置如下：
+截至 `uber/ADR@6b33dff`（2026-10-16），仓库中与 Sensor 相关的实际 CI 工作流为 `.github/workflows/sensor-gemini.yml`。其配置如下：
 
 ```yaml
 # .github/workflows/sensor-gemini.yml（实际配置）
@@ -1654,7 +1654,7 @@ jobs:
 | **部署方式** | 系统级守护进程 | 单次运行的 Python CLI（论文描述 Uber 生产环境每小时外部调度） |
 | **性能开销** | 持续监控，资源占用高 | 论文报告每次 0.182 秒（Uber 生产环境数据） |
 
-> **职责边界**：Sensor 的职责是解析、标准化和输出代理活动遥测。是否偏离用户意图、是否构成威胁，是 Detector 组件基于 Sensor 产出的 AgentEvent 执行的检测逻辑。`AgentObserver` 源码（`observer.py`）不包含任何意图判断、威胁检测或行为分析代码——其完整职责链为：Parser 解析 → 内容过滤 → 增量去重 → 原子写入 → 健康记录 → 摘要展示。
+> **职责边界**：Sensor 的职责是解析、标准化和输出代理活动遥测。Detector 组件基于 Sensor 产出的 AgentEvent 执行检测逻辑，判断行为是否偏离用户意图、是否构成威胁。`AgentObserver` 源码（`observer.py`）不包含任何意图判断、威胁检测或行为分析代码——其完整职责链为：Parser 解析 → 内容过滤 → 增量去重 → 原子写入 → 健康记录 → 摘要展示。
 
 ### 6.2 与网关方案的对比
 
