@@ -204,13 +204,13 @@ C2 侧：任务模板 9 个操作原语（`TASK_TEMPLATES`，`c2_service.py:633`
 
 **指令文件蜜饵**（`counter_offense.py:111-160`）：`/AGENTS.md`、`/CLAUDE.md`、`/.cursorrules` 三个路径返回模板（`surface_config.py:66-136`），模板把 Portal 注册/MCP 网关/报告回传写成「环境说明」，注入 `{{portal_url}}`/`{{ticket}}`/`{{audit_code}}` 会话占位符。这是面向「Agent 自动读取项目级信任文件」行为的定向诱饵。
 
-> 专题深入：[蜜罐里的提示词注入](prompt-injection.md)（白话教案：藏字条、加记号、写话术、验证清单）。
+> 专题深入：[蜜罐里的提示词注入：学习笔记](prompt-injection.md)（藏字条、加记号、话术模板、验证记录）。
 
 另有 **MCP Inspector 拟真控制台**（`/mcp-inspector*`，仿冒开源 MCP Inspector 调试台）与**云元数据 SSRF 蜜罐**（`/latest/meta-data/*`、`/computeMetadata/v1/*`，命中 risk 95 + 凭据观测）两个面，事件类型分别为 `mcp_inspector_*` 与 `metadata_*`（`surface_config.py:21-54` 注册表）。
 
 ### 4.6 Agent 指纹与行为序列
 
-> 专题深入：[怎么认出访问你网站的 AI 机器人](agent-fingerprint.md)（白话教案：三层识别方法、打分规则、验证清单）。
+> 专题深入：[蜜罐识别 AI 机器人：学习笔记](agent-fingerprint.md)（识别方法、打分规则、验证记录）。
 
 `agent_fingerprint.py::AGENT_SIGNATURES` 共 31 条签名（逐条清点，`agent_fingerprint.py:18-248`），按 kind 分组：coding_agent 14（claude_code/codex/opencode/kimi_code/pi/zcode/gemini_cli/copilot/cursor/aider/cline/windsurf/codebuddy/junie）、assistant 1（chatgpt）、automation 3（browser-use/playwright/puppeteer）、framework 11（langchain/crewai/autogpt/hexstrike/strix/pentagi/pentestagent/slingshoot/artex/cyberstrikeai/sapper）、api_sdk 2（openai_sdk/anthropic_sdk）。匹配返回 key/label/vendor/kind/confidence/version/evidence（`agent_fingerprint.py:267` 起），UA marker 分强弱两级。README 另两处写「23」是旧口径（见 6.1）。
 
