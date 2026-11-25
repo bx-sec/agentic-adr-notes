@@ -18,6 +18,10 @@ ADR-Bench 概览图。图中流程与数字仅作速查，具体口径以 [bench
 
 Detection（含 Detector）概览图。图中流程与数字仅作速查，具体口径以 [detector/source-notes.md](detector/source-notes.md) 正文和附录 B 的证据索引为准。
 
+![AgentCapture 组件概览](agentcapture/assets/cheat-sheet.png)
+
+AgentCapture 概览图。图中流程与数字仅作速查，具体口径以 [agentcapture/source-notes.md](agentcapture/source-notes.md) 正文和附录 B 的证据索引为准。
+
 ## 内容
 
 | 组件 | 笔记 | 覆盖范围 |
@@ -26,6 +30,7 @@ Detection（含 Detector）概览图。图中流程与数字仅作速查，具�
 | Sensor | [sensor/source-notes.md](sensor/source-notes.md) | 11 个代理平台、AgentEvent 统一 schema、BaseParser 架构、AgentObserver 编排、OTLP 导出、诊断健康、正反例测试方法集 |
 | ADR-Bench | [bench/source-notes.md](bench/source-notes.md) | 304 任务、134 服务器、17 类威胁、执行器与打包格式、真值与指标、AgentDojo 集成、正反例测试方法集 |
 | Detection | [detector/source-notes.md](detector/source-notes.md) | 模块定位与边界、检测问题（目标/输入/恶意定义/真值）、评测框架与检测器职责划分、ADRBaseline 三段式（Unicode 预检/Tier-1/Tier-2/上下文供给）、LlamaFirewall 与 Jev 基线差异、指标与溯源、消息保真缺口、复现与实测 |
+| AgentCapture | [agentcapture/source-notes.md](agentcapture/source-notes.md) | 双平面架构、风险打分与五级决策的强制执行条件、水印归因链（canary/诱饵 API key/Bk2026! 水印）、ThinkPHP 门面与 RCE 仿真、六协议蜜罐矩阵、三类诱饵、Portal 招募链与对话式 C2、MCP 蜜罐与指令文件蜜饵、31 条 Agent 指纹、防守侧 Sensor、实测、README 口径差异 |
 
 ## 版本锚定
 
@@ -38,6 +43,7 @@ Detection（含 Detector）概览图。图中流程与数字仅作速查，具�
 | tasks | 304 条（261 benign / 43 malicious），`Detection/tasks.json` |
 | Python | 3.11+（Discovery）；3.9–3.13（Sensor）；3.10–3.12（Bench、Detector） |
 | 判定模型 | triage `gpt-4o`；reasoning `claude-sonnet-4-6`（Claude CLI）；基线 llamafirewall（`gpt-4o-mini`）、jev（`~typesafe/jev-latest`），`config_detector.yaml` |
+| AgentCapture | `Tcotl/AgentCapture` 根目录，commit `728ffa0`（2026-11-12，v0.7.0）；Python ≥3.11，FastAPI ≥0.115 / SQLAlchemy ≥2.0.30 / paramiko ≥3.4，SQLite 默认 |
 
 ## 说明
 
@@ -49,7 +55,7 @@ Detection（含 Detector）概览图。图中流程与数字仅作速查，具�
 
 ## 范围
 
-Discovery、Sensor、ADR-Bench、Detection 已完成。
+Discovery、Sensor、ADR-Bench、Detection、AgentCapture 已完成。
 
 Bench 与 Detection 的实测数据来自 macOS 单机，依赖仓库自带的打包产物（`adr_bench_20251017_151604.jsonl`），未执行需要 API key 的端到端运行；涉及执行层与判定质量的结论以代码路径和单元测试为依据，已在 `bench/source-notes.md` 与 `detector/source-notes.md` 附录 C 标注。
 
