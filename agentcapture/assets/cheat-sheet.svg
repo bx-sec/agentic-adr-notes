@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2350" height="1000" viewBox="0 0 2350 1000" font-family="-apple-system,'PingFang SC','Helvetica Neue',Arial,sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+  <rect width="2350" height="1000" fill="#f8fafc"/>
+  <text x="40" y="52" font-size="30" font-weight="700" fill="#0f172a">AgentCapture 蜜罐组件速查（Tcotl/AgentCapture @ 728ffa0，v0.7.0）</text>
+  <text x="40" y="82" font-size="16" fill="#64748b">图中流程与数字仅作速查，以正文为准 · 统计口径见附录 B（指纹 31、SSH 命令键 62、事件类型 50）</text>
+
+  <!-- ===== 左：双平面 ===== -->
+  <text x="40" y="132" font-size="20" font-weight="700" fill="#334155">1 · 双平面（同一进程内两个 FastAPI app）</text>
+
+  <rect x="40" y="150" width="700" height="330" rx="12" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="60" y="182" font-size="19" font-weight="700" fill="#1d4ed8">管理平面 4877 · app.main:app</text>
+  <rect x="60" y="200" width="315" height="52" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="72" y="222" font-size="15" fill="#0f172a">控制台 /{admin_access_path}/（默认 /agentcapture/）</text>
+  <text x="72" y="242" font-size="13" fill="#64748b">/admin 恒 404 · openapi/docs 全关</text>
+  <rect x="395" y="200" width="325" height="52" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="407" y="222" font-size="15" fill="#0f172a">GuardProxyMiddleware（业务系统代理）</text>
+  <text x="407" y="242" font-size="13" fill="#b91c1c">仅 guard_mode_enabled=True 才挂载</text>
+  <rect x="60" y="266" width="315" height="52" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="72" y="288" font-size="15" fill="#0f172a">C2 listener /c2/*（默认关闭）</text>
+  <text x="72" y="308" font-size="13" fill="#64748b">c2_legacy_routes=False · 招募走 Portal 协议</text>
+  <rect x="395" y="266" width="325" height="52" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="407" y="288" font-size="15" fill="#0f172a">诱饵路由 /d/ · /_bait/ · /portal/ · /mcp</text>
+  <text x="407" y="308" font-size="13" fill="#64748b">traps · counter_offense 同挂管理面</text>
+  <rect x="60" y="332" width="660" height="52" rx="8" fill="#fefce8" stroke="#facc15"/>
+  <text x="72" y="354" font-size="15" fill="#713f12">默认无 CaptureAndInject 中间件 → 五级决策在本平面不强制执行</text>
+  <text x="72" y="374" font-size="13" fill="#a16207">enforce_decision 只在 guard 模式或蜜罐平面关观察模式后可达</text>
+  <rect x="60" y="398" width="660" height="60" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="72" y="422" font-size="15" fill="#0f172a">防守侧入口：管理面 MCP /mcp-admin（9 工具）· Sensor 蜜标（scripts/sensor，canary_scan 只读）</text>
+  <text x="72" y="442" font-size="13" fill="#64748b">告警 alert_dispatcher（默认 dry-run）· syslog_export · retention（30/7/90/60 天）</text>
+
+  <rect x="40" y="500" width="700" height="240" rx="12" fill="#fdf4ff" stroke="#d946ef" stroke-width="2"/>
+  <text x="60" y="532" font-size="19" font-weight="700" fill="#a21caf">蜜罐平面 48777 · create_web_honeypot_app</text>
+  <rect x="60" y="550" width="660" height="44" rx="8" fill="#ffffff" stroke="#f0abfc"/>
+  <text x="72" y="570" font-size="15" fill="#0f172a">CaptureAndInjectMiddleware(observe_only_all=True)</text>
+  <text x="72" y="588" font-size="13" fill="#a21caf">整个平面恒 observe-only：决策只落事件，响应照常返回（实测）</text>
+  <rect x="60" y="606" width="212" height="56" rx="8" fill="#ffffff" stroke="#f0abfc"/>
+  <text x="72" y="628" font-size="14" fill="#0f172a">诱饵路由优先命中</text>
+  <text x="72" y="647" font-size="13" fill="#64748b">counter_recon · counter_offense · traps · collect</text>
+  <rect x="288" y="606" width="212" height="56" rx="8" fill="#ffffff" stroke="#f0abfc"/>
+  <text x="300" y="628" font-size="14" fill="#0f172a">ThinkPHP 门面 catch-all</text>
+  <text x="300" y="647" font-size="13" fill="#64748b">/{path:path} → tp_index / tp_login_submit / tp_exploit</text>
+  <rect x="516" y="606" width="204" height="56" rx="8" fill="#ffffff" stroke="#f0abfc"/>
+  <text x="528" y="628" font-size="14" fill="#0f172a">隐藏数据面</text>
+  <text x="528" y="647" font-size="13" fill="#64748b">Ai2Shell L1 开 / L2 关 · _steering_note</text>
+  <rect x="60" y="676" width="660" height="44" rx="8" fill="#ffffff" stroke="#f0abfc"/>
+  <text x="72" y="696" font-size="15" fill="#0f172a">RCE 利用即入册 _rce_enroll · 命令送入与 SSH 共用的蜜罐 shell（纯内存树，无真实进程）</text>
+  <text x="72" y="714" font-size="13" fill="#a21caf">指令文件蜜饵 /AGENTS.md /CLAUDE.md /.cursorrules · /robots.txt 显式存在</text>
+
+  <!-- ===== 右上：风险引擎 ===== -->
+  <text x="790" y="132" font-size="20" font-weight="700" fill="#334155">2 · 风险打分与五级决策（risk_engine::classify_http_request）</text>
+  <rect x="790" y="150" width="720" height="250" rx="12" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/>
+  <rect x="810" y="170" width="340" height="200" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="822" y="194" font-size="15" font-weight="700" fill="#0f172a">信号（部分）</text>
+  <text x="822" y="216" font-size="13.5" fill="#334155">缺 UA +20 · 扫描器 UA +30 · Agent UA +40</text>
+  <text x="822" y="236" font-size="13.5" fill="#334155">Agent header +25 · 缺人机 header +15</text>
+  <text x="822" y="256" font-size="13.5" fill="#334155">诱饵路由命中 +45 · 高信号路径 +35</text>
+  <text x="822" y="276" font-size="13.5" fill="#334155">载荷正则（穿越/SQLi/XSS/命令）各 +25</text>
+  <text x="822" y="296" font-size="13.5" fill="#b91c1c">回显 prompt canary +70</text>
+  <text x="822" y="316" font-size="13.5" fill="#334155">速率 ≥12/≥6 +20/+10 · 逃逸 challenge +30</text>
+  <text x="822" y="336" font-size="13.5" fill="#64748b">copilot 有意排除 · 速率按 IP 兜底（无 cookie）</text>
+  <rect x="1170" y="170" width="320" height="200" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1182" y="194" font-size="15" font-weight="700" fill="#0f172a">分档 → 决策</text>
+  <text x="1182" y="222" font-size="15" fill="#7f1d1d" font-weight="700">≥95 → block</text>
+  <text x="1182" y="248" font-size="15" fill="#9a3412" font-weight="700">≥70 → isolate</text>
+  <text x="1182" y="274" font-size="15" fill="#a16207" font-weight="700">≥45 → challenge</text>
+  <text x="1182" y="300" font-size="15" fill="#374151" font-weight="700">≥20 → observe</text>
+  <text x="1182" y="326" font-size="15" fill="#374151" font-weight="700">else → allow</text>
+  <text x="1182" y="354" font-size="12.5" fill="#b91c1c">默认配置下仅记录，不执行</text>
+
+  <!-- ===== 右中：招募链 ===== -->
+  <text x="790" y="432" font-size="20" font-weight="700" fill="#334155">3 · Portal 招募链（蜜罐平面，无凭据校验 · 10 次/h/IP）</text>
+  <rect x="790" y="450" width="720" height="176" rx="12" fill="#ecfeff" stroke="#06b6d4" stroke-width="2"/>
+  <g font-size="14" fill="#0f172a">
+    <rect x="810" y="470" width="150" height="46" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="820" y="490">页面 API 说明</text>
+    <text x="820" y="508" font-size="12" fill="#64748b">/AGENTS.md 指引</text>
+    <rect x="984" y="470" width="150" height="46" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="994" y="490">/portal/api/content</text>
+    <text x="994" y="508" font-size="12" fill="#64748b">ticket 逐页发放</text>
+    <rect x="1158" y="470" width="158" height="46" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="1168" y="490">client-register</text>
+    <text x="1168" y="508" font-size="12" fill="#64748b">agent_id+token+checklist</text>
+    <rect x="1340" y="470" width="150" height="46" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="1350" y="490">client-heartbeat</text>
+    <text x="1350" y="508" font-size="12" fill="#64748b">领 runbook 任务</text>
+    <rect x="810" y="546" width="322" height="56" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="820" y="568">/portal/api/dataset?page=N（999,999 页）</text>
+    <text x="820" y="588" font-size="12" fill="#64748b">X-Client-Token 凭 token 放行 · 逐行水印</text>
+    <rect x="1156" y="546" width="334" height="56" rx="8" fill="#ffffff" stroke="#67e8f9"/>
+    <text x="1166" y="568">C2：8 条 NL 预设 + 9 个操作原语 · 租约下发</text>
+    <text x="1166" y="588" font-size="12" fill="#64748b">MCP /mcp tools/call(on_call=register) 调用即入册</text>
+  </g>
+  <g stroke="#0891b2" stroke-width="2" fill="none" marker-end="url(#arrow)">
+    <line x1="960" y1="493" x2="980" y2="493"/>
+    <line x1="1134" y1="493" x2="1154" y2="493"/>
+    <line x1="1316" y1="493" x2="1336" y2="493"/>
+    <line x1="1415" y1="516" x2="1415" y2="536"/>
+  </g>
+  <text x="790" y="652" font-size="14" fill="#0e7490">c2_recruit_hit risk 95 · canary = HMAC-SHA256(secret_key, session_id) 前 24 hex，贯穿 page→API→注册→心跳</text>
+
+  <!-- ===== 底部：协议蜜罐 + 水印 ===== -->
+  <text x="40" y="790" font-size="20" font-weight="700" fill="#334155">4 · 协议蜜罐（默认关，service_catalog 逐个启停）</text>
+  <g font-size="14" fill="#0f172a">
+    <rect x="40" y="808" width="360" height="120" rx="10" fill="#ffffff" stroke="#a3e635" stroke-width="2"/>
+    <text x="54" y="832" font-weight="700">ssh · 2222（paramiko 线程）</text>
+    <text x="54" y="854" font-size="13">任意口令放行 · 62 命令键 · exec/SFTP/shell</text>
+    <text x="54" y="874" font-size="13">假 fs：/etc/hosts 10.0.7.10-20 · .env</text>
+    <text x="54" y="894" font-size="13">水印私钥 staging-deploy-&lt;watermark&gt;</text>
+    <text x="54" y="914" font-size="13" fill="#4d7c0f">凭据：用户名+口令明文入库</text>
+    <rect x="420" y="808" width="360" height="120" rx="10" fill="#ffffff" stroke="#a3e635" stroke-width="2"/>
+    <text x="434" y="832" font-weight="700">mysql · 33060（自实现协议 10）</text>
+    <text x="434" y="854" font-size="13">SELECT/SHOW 假结果集 · SSL Request→TLS</text>
+    <text x="434" y="874" font-size="13" fill="#b91c1c">口令 scramble 不可逆 → 仅捕用户名</text>
+    <text x="434" y="894" font-size="13">redis · 63790 · ftp · 2121</text>
+    <text x="434" y="914" font-size="13">elasticsearch · 19200 · nginx-admin · 8081</text>
+    <rect x="800" y="808" width="710" height="120" rx="10" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+    <text x="814" y="832" font-weight="700" fill="#9a3412">水印归因链（实测打通）</text>
+    <text x="814" y="856" font-size="13.5">SSH 假 fs 凭据 Bk2026!&lt;fp&gt; → 在非 SSH 面提交（假后台/mysql/redis…）</text>
+    <text x="814" y="878" font-size="13.5">→ counter_intel::lateral_watermark 命中 → lateral_credential_reuse（risk 90）</text>
+    <text x="814" y="900" font-size="13" fill="#64748b">诱饵 API key 按 IP 派生 sk-stg-… · 事件类型 50 个（自由字符串，无枚举）</text>
+    <text x="814" y="920" font-size="13" fill="#64748b">SQLite WAL · 27 个模型模块 · tests/ 目录不存在（pyproject 声明了 testpaths）</text>
+  </g>
+</svg>
