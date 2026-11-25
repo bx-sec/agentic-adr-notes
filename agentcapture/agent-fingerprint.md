@@ -1,153 +1,124 @@
-# 蜜罐如何识别 Agent 指纹 — AgentCapture 源码专题
+# 蜜罐识别 Agent 指纹的实施方案
 
-> 版本锚定：`Tcotl/AgentCapture`，源码快照 `728ffa0`（2026-11-12，v0.7.0）。本文所有行号以该快照为准。组件总览见 [source-notes.md](source-notes.md)。配套专题：[蜜罐提示词注入实操](prompt-injection.md)。
-
-AgentCapture 的指纹识别是**两层结构**：风险引擎回答「是不是 Agent」（打分、给处置建议），产品签名库回答「是哪个 Agent」（给产品名、版本、置信度、证据链）。两层独立维护、互相不依赖，最终都汇入事件流。本文拆解这两层的全部规则表、匹配算法、实测表现与口径差异。
+> 本文是一份可直接落地的实施指南：给出蜜罐/防线上识别 AI Agent 的三层指纹方案（是否 Agent → 哪个 Agent → 是否自动化行为），每层附可直接复用的规则表、算法与验证清单。所有设计点均经过开源参考实现 **AgentCapture**（快照 `728ffa0`，2026-11-12，v0.7.0）源码核验与本机实测（macOS，2026-11-25），代码坐标集中在附录 A，证据链见附录 B。
 
 ## 目录
 
-- [一、两层指纹的分工](#一两层指纹的分工)
-- [二、第一层：风险引擎的 Agent 信号](#二第一层风险引擎的-agent-信号)
-  - [2.1 UA 词表与计分](#21-ua-词表与计分)
-  - [2.2 请求头线索与「缺人类头」启发式](#22-请求头线索与缺人类头启发式)
-  - [2.3 汇总打分与分档](#23-汇总打分与分档)
-- [三、第二层：产品级签名库（31 条）](#三第二层产品级签名库31-条)
-  - [3.1 签名全表](#31-签名全表)
+- [一、方案总览：为什么要三层](#一方案总览为什么要三层)
+- [二、第一层：风险引擎——判定「是不是 Agent」](#二第一层风险引擎判定是不是-agent)
+  - [2.1 规则表与计分（可直接复用）](#21-规则表与计分可直接复用)
+  - [2.2 分档与处置策略](#22-分档与处置策略)
+  - [2.3 实施要点与避坑](#23-实施要点与避坑)
+- [三、第二层：产品签名库——判定「是哪个 Agent」](#三第二层产品签名库判定是哪个-agent)
+  - [3.1 签名数据结构](#31-签名数据结构)
   - [3.2 匹配算法与置信度](#32-匹配算法与置信度)
-  - [3.3 版本提取](#33-版本提取)
-- [四、第三层：行为序列指纹](#四第三层行为序列指纹)
-- [五、指纹在处置链中的用途](#五指纹在处置链中的用途)
-- [六、实测（macOS 本机）](#六实测macos-本机)
-- [七、口径差异与局限](#七口径差异与局限)
-- [附录 A 代码坐标索引](#附录-a-代码坐标索引)
+  - [3.3 签名库建设流程](#33-签名库建设流程)
+- [四、第三层：行为序列指纹——UA 伪装时的兜底](#四第三层行为序列指纹ua-伪装时的兜底)
+- [五、与处置链的集成](#五与处置链的集成)
+- [六、验证清单与实测](#六验证清单与实测)
+- [七、边界与已知局限](#七边界与已知局限)
+- [附录 A 参考实现代码坐标](#附录-a-参考实现代码坐标)
 - [附录 B 关键结论及证据索引](#附录-b-关键结论及证据索引)
 
 ---
 
-## 一、两层指纹的分工
+## 一、方案总览：为什么要三层
 
-代码自己的注释把这个分工讲得很清楚（`app/services/agent_fingerprint.py:1-11`）：
+单一 UA 词表只能回答「是不是自动化客户端」，且 UA 可以随意伪造。实战可用的指纹体系需要三层互补：
 
-> The risk engine only answers "is this an agent?" (UA markers, header clues). This module answers "which agent is it?" — a product-level signature registry matched against User-Agent plus distinctive request headers, returning a confidence score and the evidence that fired so operators can audit the call.
-
-| 层 | 模块 | 输入 | 输出 | 用途 |
+| 层 | 回答的问题 | 输入 | 输出 | 典型用途 |
 |---|---|---|---|---|
-| 第一层 | `app/services/risk_engine.py::classify_http_request` | UA、请求头、路径、payload、频率 | 分数 + 信号名 + 五级决策 | 处置（challenge/isolate/block） |
-| 第二层 | `app/services/agent_fingerprint.py::identify_from_headers` | UA + 特征请求头 | 产品 key/label/vendor/kind + 置信度 + 证据链 | 归因标注（事件 payload、告警） |
-| 第三层 | `app/services/counter_intel.py::classify_behavior` | 会话请求历史（路径 + 时间戳） | automation_like / human_like + 分数 | 无 UA 伪装时的兜底信号 |
+| L1 风险引擎 | 是不是 Agent / 攻击性多强 | UA、请求头、路径、payload、频率 | 分数 + 信号名 + 决策档位 | 处置（观察/挑战/隔离/阻断） |
+| L2 产品签名库 | 具体是哪个产品 | UA + 特征请求头 | 产品名/厂商/类型 + 置信度 + 证据链 | 归因标注、告警分诊、审计 |
+| L3 行为序列 | UA 伪装时是否仍暴露自动化 | 会话请求历史（路径+时间戳） | automation_like / human_like + 分数 | 无 UA 特征时的兜底信号 |
 
-注意还有一个更粗的 `app/services/agent_injection.py::detect_agent_type`（六值枚举，L343-362），它只服务于「要不要注入指令」的判断（详见[注入专题](prompt-injection.md)第二节），不参与风险打分。
+参考实现把这两层的分工写成明确注释（`agent_fingerprint.py:1-11`）：风险引擎回答 "is this an agent?"，签名库回答 "which agent is it?"——两层独立维护、互不依赖，最终都汇入事件流。三条信号叠加后，攻击者即使伪造 UA，仍会被「缺人类请求头」「匀速请求序列」「蜜罐水印回显」等旁路信号钉住。
 
-## 二、第一层：风险引擎的 Agent 信号
+## 二、第一层：风险引擎——判定「是不是 Agent」
 
-### 2.1 UA 词表与计分
+### 2.1 规则表与计分（可直接复用）
 
-`app/services/risk_engine.py` 里有两张 UA 词表，计分不同：
+以下两张 UA 词表和配套规则来自参考实现，已按「可疑客户端 / Agent 客户端」两级计分设计，可直接迁移：
 
-**`SUSPICIOUS_UA_MARKERS`（22 条，L7-30）——「可疑客户端」，+30 分**：curl、wget、python-requests、python-urllib、aiohttp、httpx、go-http-client、okhttp、sqlmap、nikto、nuclei、dirsearch、ffuf、gobuster、wfuzz、zgrab、nmap、masscan、playwright、puppeteer、headlesschrome、browser-use。
+**`SUSPICIOUS_UA_MARKERS`（22 条，命中 +30）**——通用脚本与扫描器：curl、wget、python-requests、python-urllib、aiohttp、httpx、go-http-client、okhttp、sqlmap、nikto、nuclei、dirsearch、ffuf、gobuster、wfuzz、zgrab、nmap、masscan、playwright、puppeteer、headlesschrome、browser-use。
 
-**`AGENT_UA_MARKERS`（33 条，L32-76）——「Agent 客户端」，+40 分**：
+**`AGENT_UA_MARKERS`（33 条，命中 +40）**——按四组维护：
 
-| 分组 | 条目 |
-|---|---|
-| 浏览器自动化（4） | browser-use、playwright、puppeteer、headlesschrome |
-| 通用 Agent/LLM 关键词（8） | chatgpt、claude、gpt-4、llm、ai-agent、langchain、crewai、autogpt |
-| 编码 Agent CLI（12） | codex、opencode、gemini、google-genai、kimi、moonshot、cursor、aider、cline、windsurf、codebuddy、junie |
-| 渗透测试 Agent 框架（9） | hexstrike、strix、pentagi、pentestagent、pentest-agent、artex、cyberstrikeai、slingshoot、sapper |
-
-两张表有两个刻意的设计立场，都写在注释里：
-
-1. **copilot 有意排除**（L53-56）：「editor-autocomplete UAs are not attack agents」——有外部报告者反馈了误报，Copilot 流量仍会被第二层打上产品标签，但不计为攻击分数。
-2. **渗透框架有意计入**（L63-66）：「the platform's exact capture targets, so their own UAs score as agent traffic (opposite of the copilot case above)」——hexstrike 注明是对 2026-11 演练流量的实测验证，其余为产品名标记。
-
-另外 UA **完全缺失** +20 分（L172-174）。
-
-### 2.2 请求头线索与「缺人类头」启发式
-
-- `AGENT_HEADER_CLUES`（5 条，L78-84）：出现任一 `x-openai` / `x-anthropic` / `x-langfuse` / `x-agent` / `x-automated` 头，+25 分。
-- `MISSING_HUMAN_HEADERS`（4 项，L86）：真实浏览器会带的 `sec-fetch-site`、`sec-fetch-mode`、`sec-fetch-dest`、`accept-language`。**缺其中 ≥2 项** +15 分。这是一条与 UA 无关的兜底启发式——UA 伪装成 Chrome 但不带 sec-fetch 系列头的客户端仍会被抬分。
-- Payload 检查（L98-142）：4 组正则（路径穿越 / SQL 注入 / XSS / 命令注入），对 URL 解码后的 path+query 匹配，每命中一组 +25 分。注释明确说明 pattern 收得很紧以压误报。
-
-### 2.3 汇总打分与分档
-
-`classify_http_request`（L157-248）把上述信号与频率信号合并：
-
-| 信号 | 条件 | 分数 |
+| 分组 | 条目 | 维护口径 |
 |---|---|---|
-| missing_user_agent | UA 为空 | +20 |
-| suspicious_user_agent | 命中 22 条词表 | +30 |
-| ai_agent_ua_detected | 命中 33 条词表 | +40 |
-| ai_agent_header_detected | 命中 5 条特征头 | +25 |
-| missing_human_headers | 缺 ≥2 个人类头 | +15 |
-| trap_route_hit | 命中 `/archive/`、`/d/` 蜜饵路由 | +45 |
-| high_signal_path_hit | 命中 3 条高信号路径 | +35 |
-| payload 规则（4 组） | 每组 | +25 |
-| **prompt_canary_echo** | **回显注入的 canary token** | **+70** |
-| high/elevated_request_velocity | 会话或 IP 近期事件 ≥12 / ≥6 | +20 / +10 |
-| challenge_evasion | 收到 ≥3 次 challenge 仍继续 | +30 |
-| write_attempt_after_detection | 写方法 + 蜜饵/canary 命中 | +25 |
+| 浏览器自动化（4） | browser-use、playwright、puppeteer、headlesschrome | 与可疑表重叠，取更高分 |
+| 通用 Agent/LLM 关键词（8） | chatgpt、claude、gpt-4、llm、ai-agent、langchain、crewai、autogpt | 宽关键词，容忍 UA 变体 |
+| 编码 Agent CLI（12） | codex、opencode、gemini、google-genai、kimi、moonshot、cursor、aider、cline、windsurf、codebuddy、junie | 产品名 |
+| 渗透测试 Agent 框架（9） | hexstrike、strix、pentagi、pentestagent、pentest-agent、artex、cyberstrikeai、slingshoot、sapper | 你的平台明确想捕获的目标，其自带 UA 直接计入 |
 
-分档（L237-246）：**≥95 block / ≥70 isolate / ≥45 challenge / ≥20 observe / 其余 allow**。
+配套请求头规则：
 
-执行前提要注意：这些决策只在**管理平面 + Guard 模式**强制执行；蜜罐平面（48777）挂的是 `observe_only_all=True` 的同一中间件，只记录不处置（见总览笔记 §1.2）。canary 回显 +70 是唯一无条件落库隔离的信号（`app/middleware/injector.py:186-193`），详见[注入专题](prompt-injection.md)第六节。
+- 特征头（任一出现 +25）：`x-openai` / `x-anthropic` / `x-langfuse` / `x-agent` / `x-automated`；
+- **缺人类头启发式**：真实浏览器必带的 `sec-fetch-site`、`sec-fetch-mode`、`sec-fetch-dest`、`accept-language` 缺 ≥2 项 → +15。这是 UA 伪装成 Chrome 时的旁路检测，建议必上；
+- payload 正则（路径穿越/SQLi/XSS/命令注入 4 组，每组 +25）：对 URL 解码后的 path+query 匹配，pattern 收紧压误报；
+- UA 完全缺失：+20；
+- 频率：会话或 IP 近期事件 ≥12 → +20，≥6 → +10（按 IP 聚合是为了防 cookie 轮换）；
+- 蜜罐水印回显：+70（见[注入实施方案](prompt-injection.md)第六节，是最强的单一信号）。
 
-## 三、第二层：产品级签名库（31 条）
+### 2.2 分档与处置策略
 
-### 3.1 签名全表
+参考实现的分档（`risk_engine.py:237-246`）建议直接沿用：
 
-`app/services/agent_fingerprint.py::AGENT_SIGNATURES`（L18-248）共 **31 条签名**，按 `kind` 分 5 组。每条签名的字段：`ua_markers`（强标记，命中即 0.9）、`ua_weak_markers`（弱标记，0.6）、`ua_prefixes`（前缀，0.75）、`header_markers`（特征头名，存在即加分）、`header_pairs`（头名+值对，加分更多）。
+| 分数 | 决策 | 处置 |
+|---|---|---|
+| ≥95 | block | 直接阻断（Agent 信号触发时返回带检测类型的 403 页） |
+| ≥70 | isolate | 会话/IP 持久隔离，返回 503 页（页面内可藏归因指令，见注入专题） |
+| ≥45 | challenge | 下发 JS 挑战；反复绕过（≥3 次）追加 challenge_evasion +30 逐级升档 |
+| ≥20 | observe | 记录不处置 |
+| <20 | allow | 放行 |
 
-**coding_agent（14 条）**
+实施前提要想清楚**在哪里强制执行**：参考实现的蜜罐面对外只记录不处置（`observe_only_all`），处置在管理平面强制——蜜罐里把「敌意访客」挡在门外会破坏欺骗链；而你自己若在真实业务前部署，则相反：蜜饵面不处置，业务面处置。
 
-| key | label | vendor | 强 UA 标记 | 弱 UA / 其他信号 |
-|---|---|---|---|---|
-| claude_code | Claude Code | Anthropic | claude-cli, claude-code, claudecode | 弱：claude；头：anthropic-client, anthropic-beta, x-stainless-organization |
-| codex | ChatGPT Codex | OpenAI | codex_cli_rs, codex_cli, codex/ | 弱：codex；对：originator=codex；头：openai-beta |
-| opencode | OpenCode | OpenCode | opencode | — |
-| kimi_code | Kimi Code | Moonshot AI | kimi-cli, kimicode, kimi-code, kimicli | 弱：kimi, moonshot |
-| pi | Pi | Pi | pi-agent, pi/cli, pi-agent-cli | 前缀：pi/ |
-| zcode | ZCode | ZCode | zcode, z-code | — |
-| gemini_cli | Gemini CLI | Google | gemini-cli, google-genai | 弱：gemini |
-| copilot | GitHub Copilot | GitHub | github-copilot, copilot | — |
-| cursor | Cursor | Anysphere | cursor | — |
-| aider | Aider | Aider | aider | — |
-| cline | Cline | Cline | cline | — |
-| windsurf | Windsurf | Codeium | windsurf, codeium | — |
-| codebuddy | CodeBuddy | Tencent | codebuddy | — |
-| junie | Junie | JetBrains | junie | — |
+### 2.3 实施要点与避坑
 
-**assistant（1 条）**：chatgpt（ChatGPT / OpenAI）——ua_markers 含 chatgpt-user、chatgpt、gptbot、oai-searchbot。
+1. **copilot 一类编辑器补全 UA 要有意排除**：参考实现因外部误报反馈明确把 `copilot` 移出风险词表（`risk_engine.py:53-56` 注释），但产品标签照打。原则：**非自主执行的编辑器流量不计攻击分，自主执行的 CLI/框架才计**。
+2. **渗透框架 UA 与上面立场相反、有意计入**（L63-66）：它们是你想捕获的对象，自带 UA 落入即加分。两类立场都要在词表注释里写明理由，避免后人「顺手统一」。
+3. 每条规则的分数、条件都集中在一个 `classify_http_request` 函数里（顺序累加、无权重隐藏），便于审计和调参——建议同样做成**单一入口、扁平累加**。
 
-**automation（3 条）**：browser-use、playwright（Microsoft）、puppeteer（Google，含 headlesschrome）。
+## 三、第二层：产品签名库——判定「是哪个 Agent」
 
-**framework（11 条）**：langchain、crewai、autogpt、以及 2026-11 新增的 8 个渗透框架 hexstrike / strix / pentagi / pentestagent / slingshoot / artex / cyberstrikeai / sapper（L174-176 注释：hexstrike 经演练流量验证，其余为产品名标记，「these are the platform's targets」）。sapper 另有弱标记 n1neman。
+### 3.1 签名数据结构
 
-**api_sdk（2 条）**：openai_sdk（openai-python/openai-node/openai-go）、anthropic_sdk（anthropic-python/anthropic-typescript/anthropic-sdk）。
+每条签名五个字段（`agent_fingerprint.py:18-248`）：
 
-模块 docstring（L8-10）注明：claude code / codex / opencode / kimi / pi / zcode 六个是对 2026-08 反招募轮次**真实流量验证**过的，其余用产品规范 UA。
+| 字段 | 含义 | 置信度贡献 |
+|---|---|---|
+| `ua_markers` | 强 UA 标记（产品专属串） | 0.90 |
+| `ua_weak_markers` | 弱标记（泛子串，可能误报） | 0.60 |
+| `ua_prefixes` | UA 前缀 | 0.75 |
+| `header_markers` | 特征头名（存在即加分） | max(conf, 0.65) + 0.03 |
+| `header_pairs` | 头名+值对 | max(conf, 0.75) + 0.05 |
+
+置信度封顶 0.98。参考实现共 31 条签名（coding_agent 14 / assistant 1 / automation 3 / framework 11 / api_sdk 2），完整清单见[总览笔记附录](source-notes.md#附录-a-代码坐标索引)。几个值得直接抄的特征头：Claude Code 带 `anthropic-client`/`anthropic-beta`/`x-stainless-organization`；Codex 带 `originator: codex` 对 + `openai-beta` 头。
 
 ### 3.2 匹配算法与置信度
 
-`identify_from_headers`（L267-333）遍历全部签名，取**置信度最高的一个**（L330-331）。计分规则（L284-316）：
+匹配主函数逻辑（`identify_from_headers`，L267-333），约 60 行可实现：
 
-| 信号 | 置信度 |
-|---|---|
-| 强 UA 标记命中 | **0.90** |
-| 弱 UA 标记命中 | **0.60** |
-| UA 前缀命中 | **0.75** |
-| 特征头存在 | `max(confidence, 0.65) + 0.03` |
-| 头名+值对命中 | `max(confidence, 0.75) + 0.05` |
-| 上限 | 0.98 |
+1. 遍历全部签名；UA/头做小写归一后做子串/前缀/头对匹配；
+2. 每个命中的证据逐条记入 `evidence`（如 `ua: codex_cli_rs`、`header: originator=codex`）；
+3. 按 §3.1 计分，取**置信度最高的一个**为结果；
+4. 输出 `{key, label, vendor, kind, confidence, version, evidence}`。
 
-也就是说：单一强 UA 命中 = 0.90；强 UA + 两个特征头 = 0.96；UA 完全不伪装、只带 `openai-beta` 头也能拿到 0.65+ 的底线判定。所有命中的证据逐条记入 `evidence` 列表（如 `ua: codex_cli_rs`、`header: originator=codex`），运维可在事件详情里审计这条判定为什么成立——这是该模块区别于「裸正则」的核心设计。
+关键设计：**evidence 逐条可审计**——运维在事件详情里能看到判定为什么成立，这是它与「裸正则打标」的核心区别，也是误报争议时唯一能复盘的东西。
 
-### 3.3 版本提取
+版本提取：对命中标记后的版本号做 `marker[/ v]?(\d+(\.\d+)+…)` 正则提取（截断 32 字符），实测 `codex_cli_rs/0.9.0` → `"0.9.0"`。
 
-`_version_pattern`（L253-259）对命中的标记后跟的版本号做提取：正则 `marker[/ v]?(\d+(?:\.\d+)+...)`（忽略大小写，截断 32 字符）。实测 `codex_cli_rs/0.9.0` 提取出 `version: "0.9.0"`。
+### 3.3 签名库建设流程
 
-## 四、第三层：行为序列指纹
+1. **真流量优先**：参考实现的前 6 个编码 Agent（claude code / codex / opencode / kimi / pi / zcode）是拿真实演练流量验证 UA 的，其余才用产品规范 UA（L8-10 注释）。建议同样：能抓真包就抓真包。
+2. **分类维护**：按 kind 分组，新产品进库先定 kind（是编码 Agent、自动化框架还是 SDK），渗透框架类产品注明「捕获目标」。
+3. **弱标记只做归因、不进风险词表**：`claude`/`gemini`/`kimi` 这类泛子串放在 L2（误报只影响标签），与 L1 计分词表分开维护（L1 是独立 33 条）。
+4. **签名库与 README/文档同步**：参考实现 README 写 23 条、代码实际 31 条（新增 8 个渗透框架未同步文档）——你们的签名库要有版本号或导出计数，避免口径漂移。
 
-当攻击者把 UA 改成正常浏览器时，前两层失效，`app/services/counter_intel.py::classify_behavior`（L138-176）用会话请求历史兜底。每 N 次请求（默认第 5 次）触发一次分类（`app/middleware/injector.py:517-527`），取会话最近 11 条事件加当前请求，计算 4 个信号：
+## 四、第三层：行为序列指纹——UA 伪装时的兜底
+
+当攻击者把 UA 改成正常浏览器，前两层失效，用会话请求历史兜底。参考实现的算法（`counter_intel.py::classify_behavior`，L138-176）四个信号、扁平累加：
 
 | 信号 | 条件 | 分数 |
 |---|---|---|
@@ -156,95 +127,75 @@ AgentCapture 的指纹识别是**两层结构**：风险引擎回答「是不是
 | uniform_intervals | 请求间隔变异系数倒数 >0.75（匀速） | +25 |
 | sustained_sequenced_requests | 路径数 ≥10 且静态占比 <10% | +20 |
 
-分数 ≥50（可配）判 `automation_like`，写入事件 `payload_json.behavior` 并附加 `behavior_automation` 信号；≥75 附加 `behavior_automation_strong`（`injector.py:546-551`）。阈值在管理台「行为序列指纹」面可调（`app/services/surface_config.py:248-253`：min_events 5 / classify_every 5 / auto 50 / strong 75）。
+分数 ≥50 判 `automation_like`，≥75 附加 strong 信号；阈值建议做成可配置（参考实现在管理台暴露 min_events / classify_every / auto / strong 四个参数，默认 5/5/50/75）。
 
-注意分类是**按会话**聚合的：不带 cookie 的客户端每个请求都是新会话，历史永远凑不够 min_events，行为指纹不生效——对无状态工具真正起作用的是按 IP 聚合的 velocity 信号（§2.3）。
+触发机制：每 N 次请求（默认第 5 次）对会话最近 11 条事件 + 当前请求做一次分类，结果写进事件 payload 而非实时处置——离线标注为主，避免误判直接拦截真人。
 
-## 五、指纹在处置链中的用途
+**已知局限（实施时必须补位）**：行为分类按**会话**聚合，无 cookie 客户端每个请求都是新会话、永远凑不够 min_events。无状态工具的兜底要靠 **IP 级聚合的 velocity 信号**（§2.1）——参考实现注释明示这个设计原因（`risk_engine.py:210-218`）。实测验证见第六节。
 
-1. **事件归因**：每个请求落库时跑 `identify_from_headers`，命中则写 `payload_json.agent_fingerprint` 并附加 `agent_product:<key>` 信号（`injector.py:473-479`）。攻击者画像按 agent_products 聚合打「AI Agent」标签（`counter_intel.py::attacker_tags`）。
-2. **隔离短路响应**：已隔离来源再访问时，隔离页的记录事件里带完整指纹（`injector.py:274-281`）。
-3. **阻断页**：block 决策若由 agent 信号触发，页面直接报出检测到的 agent 类型（`injector.py:196-202` + `agent_injection.py::generate_block_page`）。
-4. **蜜饵内容个性化**：AGENTS.md 蜜饵读取事件的 payload 里记录 `agent_product` 的 label（`app/routes/counter_offense.py:47-49,122-129`）。
-5. **风险加分**：第一层的 `ai_agent_ua_detected` / `ai_agent_header_detected` 信号直接抬分触发处置。
+## 五、与处置链的集成
 
-## 六、实测（macOS 本机）
+指纹不是孤立输出，落点有五个（参考实现逐一实现）：
 
-环境：本机跑管理面 4877 + 蜜罐面 48777（全新数据库）。
+1. **事件归因**：每请求落库时跑 L2，命中写 `payload.agent_fingerprint` + `agent_product:<key>` 信号；攻击者画像按产品聚合打「AI Agent」标签。
+2. **处置页携带指纹**：隔离短路响应的记录事件带完整指纹；block 页若由 Agent 信号触发，直接报出检测到的产品类型。
+3. **蜜饵内容个性化**：指令文件蜜饵读取事件记录产品 label，为后续定向话术（见注入专题）提供输入。
+4. **抬分联动**：L1 的 `ai_agent_ua_detected` / `ai_agent_header_detected` 直接进风险分，与蜜饵命中（+45）、水印回显（+70）叠加后跨过处置档位。
+5. **告警分诊**：信号名进告警 payload，值班按 `agent_product` / `behavior_automation` / `prompt_canary_echo` 优先级排序。
 
-**产品指纹命中**——用 Codex CLI 的真实请求形态访问 `/AGENTS.md`：
+## 六、验证清单与实测
 
-```bash
-curl http://127.0.0.1:48777/AGENTS.md \
-  -A "codex_cli_rs/0.9.0 (Mac OS 15.5; arm64) Codex" \
-  -H "originator: codex" -H "openai-beta: responses=v1"
-```
+上线前建议按下表逐项验证（本机已按此执行，环境：管理面 4877 + 蜜罐面 48777，全新数据库）：
 
-事件 payload（sqlite `events` 表实测）：
+| # | 验证项 | 操作 | 通过标准 | 实测结果 |
+|---|---|---|---|---|
+| V1 | L2 强特征命中 | `curl -A "codex_cli_rs/0.9.0 (…)" -H "originator: codex" -H "openai-beta: responses=v1"` | 事件 payload 有产品指纹、evidence ≥2 条 | ✓ `key: codex, confidence: 0.98, version: 0.9.0, evidence: [ua, header×2]` |
+| V2 | L1 联动抬分 | 同上请求 | `ai_agent_ua_detected`(+40) + `missing_human_headers`(+15) → challenge 档 | ✓ risk 55 |
+| V3 | L3 触发节奏 | 同会话（带 cookie）匀速 6 连击 | 第 5 次请求触发分类，写 payload.behavior | ✓ score 50 automation_like（no_static_assets + sustained_sequenced_requests） |
+| V4 | copilot 不误报 | 带 copilot UA 访问 | 无风险加分、有产品标签 | 依词表设计（源码核验，未实测） |
+| V5 | 无 cookie 客户端 | 不带 cookie 连击 | 无行为分类触发（会话聚合局限） | ✓（V3 失败路径验证） |
+| V6 | observe 面不处置 | 蜜罐面高分数请求 | 只记录不 403/不挑战 | ✓ 响应头无决策头 |
 
-```json
-{"agent_fingerprint": {"key": "codex", "label": "ChatGPT Codex",
-  "vendor": "OpenAI", "kind": "coding_agent", "confidence": 0.98,
-  "version": "0.9.0",
-  "evidence": ["ua: codex_cli_rs", "header: openai-beta", "header: originator=codex"]}}
-```
+## 七、边界与已知局限
 
-同一请求的风险层信号：`ai_agent_ua_detected`（+40）+ `missing_human_headers`（+15）= 55 分 → challenge 档（蜜罐面只记录不处置）。UA 词表同时命中了第二层的 `codex` 和第一层的 `ai_agent_ua_detected`，两层独立工作。
+1. **UA 可伪造**：L1/L2 都是明文匹配，改一个字符串即可绕过。真正的对抗纵深在旁路信号（缺人类头、匀速序列、水印回显），实施时不要把 UA 词表当主防线。
+2. **弱标记误报面**：泛子串只做归因不做处置（§3.3 第 3 条），否则会误伤带关键词的正常工具。
+3. **行为指纹对无 cookie 客户端失效**：设计取舍，靠 IP 级 velocity 补位（§四）。
+4. **签名库是手工清单**：无热加载/远程下发，新产品需要发版更新——如果你需要快速响应，建议把签名库做成可远程下发的数据文件（参考实现的 sensor 特征表就是这个形态，`features.json`）。
+5. **合规前提**：指纹结果用于授权范围内的蜜罐/防御场景；对真实用户的请求头采集注意最小化与留存策略。
 
-**行为序列指纹命中**——同一会话（带 cookie）匀速连拉 6 页毒化数据集：
+## 附录 A 参考实现代码坐标
 
-```bash
-for i in 1..6: curl -b jar "http://127.0.0.1:48777/portal/api/dataset?page=$i"
-```
+以下坐标对应 AgentCapture 快照 `728ffa0`，本文各节设计点的核验出处：
 
-第 5 次请求触发分类，事件实测：
-
-```json
-{"behavior": {"score": 50, "classification": "automation_like",
-  "signals": ["no_static_assets", "sustained_sequenced_requests"]}}
-```
-
-信号 `behavior_automation` 附加成功（risk 95，与 velocity/challenge_evasion 叠加后到 block 档）。注意第 6 次请求因「匀速」未命中（间隔 1s 整数抖动）和路径多样性不足，score 停在 50 而非更高。
-
-## 七、口径差异与局限
-
-1. **README 写 23，代码是 31**：`README.md:63` 与 `README.md:130` 均写「23 product-level fingerprints」，实际 `AGENT_SIGNATURES` 为 31 条（L18-248 逐条清点）。差异来自 2026-11 新增的 8 个渗透测试框架签名——README 未随代码更新。
-2. **UA 可伪造**：整套第一、二层都是明文 UA/头匹配，改一个 UA 字符串即可绕过；真正的对抗纵深在 canary 回显（+70、无条件落库）与行为序列兜底。
-3. **弱标记误报面**：`claude`、`gemini`、`kimi`、`codex` 等弱标记是普通子串匹配（0.6 置信度），UA 里带这些词的非 agent 工具会被误标——但弱标记不进风险词表（风险词表是独立维护的 33 条），所以误标只影响归因不影响处置。
-4. **行为指纹按会话聚合**：无 cookie 客户端不触发（§四），这是设计取舍（依赖 IP 级 velocity 补位），不是 bug。
-5. **签名维护是手工清单**：新 Agent 需要改代码加签名；没有热加载或远程下发机制。
-
-## 附录 A 代码坐标索引
-
-| 内容 | 坐标 |
+| 设计点 | 坐标 |
 |---|---|
-| 模块定位注释 | app/services/agent_fingerprint.py:1-11 |
-| 31 条签名表 | app/services/agent_fingerprint.py:18-248 |
-| 版本提取正则 | app/services/agent_fingerprint.py:253-259 |
-| 匹配主函数与置信度 | app/services/agent_fingerprint.py:267-333 |
-| 可疑 UA 词表（22） | app/services/risk_engine.py:7-30 |
-| Agent UA 词表（33）+ copilot/渗透框架注释 | app/services/risk_engine.py:32-76 |
-| 特征头 / 缺人类头 | app/services/risk_engine.py:78-86 |
-| payload 正则 4 组 | app/services/risk_engine.py:98-142 |
-| 打分主函数与分档 | app/services/risk_engine.py:157-248 |
-| 行为分类算法 | app/services/counter_intel.py:138-176 |
-| 行为分类注入点（每 N 次请求） | app/middleware/injector.py:490-551 |
-| 指纹写入事件 payload | app/middleware/injector.py:473-479 |
+| 两层分工注释 | app/services/agent_fingerprint.py:1-11 |
+| L2 签名库（31 条） | app/services/agent_fingerprint.py:18-248 |
+| L2 匹配与置信度 | app/services/agent_fingerprint.py:267-333 |
+| L2 版本提取 | app/services/agent_fingerprint.py:253-259 |
+| L1 可疑 UA 词表（22） | app/services/risk_engine.py:7-30 |
+| L1 Agent UA 词表（33）+ copilot/渗透框架立场注释 | app/services/risk_engine.py:32-76 |
+| L1 特征头/缺人类头 | app/services/risk_engine.py:78-86 |
+| L1 payload 正则 | app/services/risk_engine.py:98-142 |
+| L1 打分主函数与分档 | app/services/risk_engine.py:157-248 |
+| L3 行为分类算法 | app/services/counter_intel.py:138-176 |
+| L3 触发节奏（每 N 次请求） | app/middleware/injector.py:490-551 |
+| 指纹写事件 payload | app/middleware/injector.py:473-479 |
 | 隔离短路带指纹 | app/middleware/injector.py:274-281 |
-| 行为面配置默认值 | app/services/surface_config.py:248-253 |
-| AGENTS.md 事件带 agent_product | app/routes/counter_offense.py:47-49,111-160 |
-| README 23 条口径 | README.md:63、README.md:130 |
-| 粗粒度六值枚举 detect_agent_type | app/services/agent_injection.py:343-362 |
+| L3 参数配置默认值 | app/services/surface_config.py:248-253 |
+| 蜜饵事件带产品 label | app/routes/counter_offense.py:47-49、111-160 |
+| README「23」旧口径（反向教训） | README.md:63、README.md:130 |
 
 ## 附录 B 关键结论及证据索引
 
 | # | 结论 | 证据 |
 |---|---|---|
-| B1 | 指纹识别为三层结构：风险引擎（是否 Agent）→ 产品签名库（哪个 Agent）→ 行为序列（UA 伪装时兜底） | agent_fingerprint.py:1-11（模块注释原文）；risk_engine.py:157-248；counter_intel.py:138-176 |
-| B2 | 产品签名库实际 31 条（coding_agent 14 / assistant 1 / automation 3 / framework 11 / api_sdk 2），README 写 23 未更新 | agent_fingerprint.py:18-248 逐条清点；README.md:63 |
-| B3 | 置信度算法：强 UA 0.9 / 弱 0.6 / 前缀 0.75，特征头 +0.03（底 0.65）、头值对 +0.05（底 0.75），封顶 0.98；证据链逐条记录 | agent_fingerprint.py:284-316 |
-| B4 | copilot 从风险词表有意排除（误报反馈），渗透框架 UA 有意计入（明确目标）；两者立场相反、注释均明示理由 | risk_engine.py:53-66 |
-| B5 | 风险分档 ≥95 block / ≥70 isolate / ≥45 challenge / ≥20 observe；canary 回显 +70 是最高单一信号 | risk_engine.py:237-246、206-208 |
-| B6 | 实测：codex_cli_rs UA + originator/openai-beta 头 → 置信度 0.98、版本 0.9.0、三条证据；风险 55 challenge | 本文第六章实测输出（events 表 payload_json） |
-| B7 | 实测：同会话 6 连击第 5 次触发行为分类，score 50 automation_like（no_static_assets + sustained_sequenced_requests） | 本文第六章实测输出（payload_json.behavior） |
-| B8 | 行为指纹按会话聚合，无 cookie 客户端不生效；无状态工具依赖 IP 级 velocity | injector.py:509-527（按 session_id 查询）；risk_engine.py:210-218（注释明示） |
+| B1 | 三层结构互补：L1 判攻击性、L2 判产品、L3 判自动化行为；独立维护、汇入同一事件流 | agent_fingerprint.py:1-11；risk_engine.py:157-248；counter_intel.py:138-176 |
+| B2 | L2 置信度：强 UA 0.9 / 弱 0.6 / 前缀 0.75，特征头 +0.03（底 0.65）、头值对 +0.05（底 0.75），封顶 0.98；evidence 逐条可审计 | agent_fingerprint.py:284-316 |
+| B3 | copilot 从风险词表有意排除（误报反馈），渗透框架有意计入（捕获目标）；两种立场均注释明示 | risk_engine.py:53-66 |
+| B4 | L1 分档 ≥95 block / ≥70 isolate / ≥45 challenge / ≥20 observe；水印回显 +70 为最高单一信号 | risk_engine.py:237-246、206-208 |
+| B5 | 实测 V1/V2：codex_cli_rs UA + 双特征头 → 置信度 0.98、版本 0.9.0、三条证据；风险 55 challenge | 本文第六章实测（events 表 payload_json） |
+| B6 | 实测 V3：同会话第 5 次请求触发行为分类，score 50 automation_like | 本文第六章实测（payload_json.behavior） |
+| B7 | L3 按会话聚合，无 cookie 客户端不生效；无状态工具依赖 IP 级 velocity | injector.py:509-527；risk_engine.py:210-218（注释） |
+| B8 | 文档与签名库数量脱节（README 23 vs 代码 31）是签名库运营的反面教材 | README.md:63；agent_fingerprint.py:18-248 逐条清点 |
