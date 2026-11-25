@@ -1,0 +1,52 @@
+title: AI Coding Agent CLI User-Agent
+id: e5117698-ac79-4206-a924-cd1360719be7
+status: experimental
+description: |
+    Detects user agents of AI coding agent CLIs (Codex, Claude Code, OpenCode,
+    Cursor, Aider, Cline, Windsurf, CodeBuddy, Junie, Gemini CLI, Kimi Code,
+    ZCode, Pi). These tools access web servers during reconnaissance and
+    vulnerability assessment. Strong product-specific markers only; broad
+    keywords (claude, gemini, kimi, codex alone) are covered by a separate
+    lower-severity rule to keep false positives manageable.
+    Marker list derived from AgentCapture AGENT_SIGNATURES (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+    - attack.t1592.002
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs(User-Agent)|contains:
+            - 'codex_cli_rs'
+            - 'codex_cli'
+            - 'claude-cli'
+            - 'claude-code'
+            - 'claudecode'
+            - 'anthropic-client'
+            - 'opencode'
+            - 'kimi-cli'
+            - 'kimi-code'
+            - 'kimicli'
+            - 'cursor'
+            - 'aider'
+            - 'cline'
+            - 'windsurf'
+            - 'codeium'
+            - 'codebuddy'
+            - 'junie'
+            - 'gemini-cli'
+            - 'google-genai'
+            - 'zcode'
+            - 'z-code'
+            - 'pi-agent'
+            - 'pi/cli'
+    condition: selection
+falsepositives:
+    - Authorized security assessments and red team exercises using these CLIs
+    - CI/CD jobs that fetch pages with these tools
+level: medium

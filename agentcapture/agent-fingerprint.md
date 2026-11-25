@@ -1,6 +1,6 @@
 # 蜜罐识别 AI 机器人：学习笔记
 
-> 主题：给蜜罐（故意布置的假目标，用来引攻击者上钩、看清对方是谁）加上一套识别 AI 机器人的能力。本文是学习笔记，按重点整理。所有做法参考了开源项目 AgentCapture（版本 728ffa0，2026-11-12），我在本机跑通并验证过。源码位置集中在附录 A，正文只讲方法和结论。
+> 主题：给蜜罐（故意布置的假目标，用来引攻击者上钩、看清对方是谁）加上一套识别 AI 机器人的能力。本文是学习笔记，按重点整理。所有做法参考了开源项目 AgentCapture（版本 728ffa0，2026-11-12），我在本机跑通并验证过。文末附 Sigma 检测规则，专业同行可直接取用。
 
 ## 0. 先补几个背景概念
 
@@ -90,7 +90,51 @@
 
 置信度打分公式（识别产品时用）：UA 强特征命中 0.9，弱特征 0.6，前缀 0.75；特征头存在再加一点（0.03），头名和值都对上再加一点（0.05），最高封顶 0.98。版本号从 UA 里顺带提取。判定证据逐条列出，出了误报有据可查，这是它和普通正则打标的主要区别。
 
-## 7. 注意事项
+## 7. Sigma 检测规则
+
+把上面的识别方法整理成了 7 条 Sigma 规则，放在 [sigma/](sigma/) 目录，主流 SIEM（Splunk、Elastic、Loki、Wazuh 等）可直接导入。Sigma 是通用日志检测规则的 YAML 格式，规则里写「在什么日志里、匹配什么条件」，后端负责翻译成各平台的查询语句。
+
+| 规则文件 | 抓什么 | 级别 |
+|---|---|---|
+| [agentcapture_ai_agent_cli_ua.yml](sigma/agentcapture_ai_agent_cli_ua.yml) | 编程机器人 UA（Codex、Claude Code、Cursor 等强特征） | medium |
+| [agentcapture_ai_agent_weak_ua_keywords.yml](sigma/agentcapture_ai_agent_weak_ua_keywords.yml) | 宽泛 AI 关键词，用于标注和狩猎，不建议直接告警 | low |
+| [agentcapture_ai_automation_pentest_framework_ua.yml](sigma/agentcapture_ai_automation_pentest_framework_ua.yml) | 浏览器自动化和攻击型 AI 框架 UA | high |
+| [agentcapture_ai_agent_custom_headers.yml](sigma/agentcapture_ai_agent_custom_headers.yml) | AI 工具自带的身份牌头（x-openai、x-agent 等） | medium |
+| [agentcapture_missing_browser_fetch_metadata.yml](sigma/agentcapture_missing_browser_fetch_metadata.yml) | 伪装浏览器但忘带真人头的请求 | medium |
+| [agentcapture_agent_canary_echo.yml](sigma/agentcapture_agent_canary_echo.yml) | 蜜罐字条记号被原样带回（配合注入笔记使用） | critical |
+| [agentcapture_bait_route_with_agent_ua.yml](sigma/agentcapture_bait_route_with_agent_ua.yml) | 蜜饵路径访问 + AI 机器人 UA，两个强信号叠加 | high |
+
+使用前注意三点：
+
+1. 字段名要按自家日志管道调整。规则里用的是 IIS 风格的 `cs(User-Agent)`、`c-uri`，nginx 日志对应 `http_user_agent`、`uri`，ECS 对应 `http.request.headers.*`、`url.original`。
+2. 「缺真人头」这条规则先确认日志管道保留了 sec-fetch 和 accept-language 头。很多采集端默认只留 UA，头被裁掉时这条规则会全部误报。
+3. 严重级别是按参考实现的打分给的：UA 类规则只能说明「来的是机器人」，记号回显（critical）才是实锤，两者处置等级不同。
+
+其中一条的原文，感受一下格式：
+
+```yaml
+title: AI Coding Agent CLI User-Agent
+id: e5117698-ac79-4206-a924-cd1360719be7
+status: experimental
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs(User-Agent)|contains:
+            - 'codex_cli_rs'
+            - 'claude-cli'
+            - 'opencode'
+            - 'cursor'
+            - 'aider'
+            - 'cline'
+            - 'windsurf'
+    condition: selection
+falsepositives:
+    - Authorized security assessments using these CLIs
+level: medium
+```
+
+## 8. 注意事项
 
 1. UA 随便改，前两步都可绕过。体系里真正难绕的是缺真人头、行为分析、字条记号回显这三条旁路证据。
 2. 宽泛关键词（claude、gemini 这类）只用于标注，不用于拦人，否则误伤。
@@ -98,33 +142,3 @@
 4. 产品清单要人维护、做版本管理。参考实现文档写 23 种、代码实际 31 种，文档没跟上，引以为戒。
 5. 置信度打分要有封顶（0.98），证据要能逐条展示。
 
-## 附录 A：参考实现的代码位置
-
-AgentCapture 快照 728ffa0。核对出处看这些：
-
-| 内容 | 位置 |
-|---|---|
-| 两层分工的说明 | app/services/agent_fingerprint.py 开头 |
-| 产品特征清单（31 条） | 同上文件 18-248 行 |
-| 匹配与置信度打分 | 同上文件 267-333 行 |
-| 版本号提取 | 同上文件 253-259 行 |
-| 可疑客户端清单（22 条） | app/services/risk_engine.py 7-30 行 |
-| AI 机器人清单（33 条）及 copilot、攻击框架的注释 | 同上文件 32-76 行 |
-| 特征头、缺真人头规则 | 同上文件 78-86 行 |
-| 打分与分档 | 同上文件 157-248 行 |
-| 行为分析算法 | app/services/counter_intel.py 138-176 行 |
-| 行为分析触发时机 | app/middleware/injector.py 490-551 行 |
-| 指纹写进事件记录 | app/middleware/injector.py 473-479 行 |
-| 文档写 23 的旧口径 | README.md 第 63 行 |
-
-## 附录 B：结论与出处对照
-
-| 结论 | 出处 |
-|---|---|
-| 三层体系，独立维护，结果汇入同一事件流 | agent_fingerprint.py:1-11；counter_intel.py:138-176 |
-| 置信度公式：0.9 / 0.6 / 0.75，特征头小幅加分，封顶 0.98 | agent_fingerprint.py:284-316 |
-| copilot 排除（误报反馈）、攻击框架加入（专门目标），两种立场均有注释 | risk_engine.py:53-66 |
-| 分档 95/70/45/20，字条记号回显加 70 分是最大单项 | risk_engine.py:237-246 |
-| 实测：Codex 请求头识别出产品、版本、0.98 置信度、三条证据 | 本文第 6 节验证记录 |
-| 实测：同会话第 5 次请求触发行为判定，得 50 分 | 本文第 6 节验证记录 |
-| 行为分析按会话统计，无 cookie 客户端不触发 | injector.py:509-527 及注释 |

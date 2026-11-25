@@ -1,6 +1,6 @@
 # 蜜罐里的提示词注入：学习笔记
 
-> 主题：在蜜罐里用「提示词注入」做反制。本文是学习笔记，按重点整理。所有做法参考了开源项目 AgentCapture（版本 728ffa0，2026-11-12），我在本机跑通并验证过。源码位置集中在附录 A。相关笔记：[蜜罐识别 AI 机器人](agent-fingerprint.md)。
+> 主题：在蜜罐里用「提示词注入」做反制。本文是学习笔记，按重点整理。所有做法参考了开源项目 AgentCapture（版本 728ffa0，2026-11-12），我在本机跑通并验证过。相关笔记：[蜜罐识别 AI 机器人](agent-fingerprint.md)。
 
 ## 0. 先补几个背景概念
 
@@ -166,46 +166,3 @@
 3. 工具调用标记注入只开在演练环境。
 4. 规矩的模型拒绝明显的暗指令是正常现象，不是要绕过的障碍。这套体系的目标是认出对方、留下证据。
 
-## 附录 A：参考实现的代码位置
-
-AgentCapture 快照 728ffa0。核对出处看这些：
-
-| 内容 | 位置 |
-|---|---|
-| 注入引擎的自我说明 | app/services/agent_injection.py 开头 |
-| 分层门槛 | 同上文件 375-379 行 |
-| 字条选择与渲染 | 同上文件 326-340、414-469 行 |
-| 8 条模板定义与开关 | 同上文件 227-316 行 |
-| 字条原文 | 同上文件 52-207 行 |
-| 拦截页、隔离页 | 同上文件 474-504、507-536 行 |
-| 注入点 | app/middleware/injector.py 301-338 行 |
-| 已上钩事件清单 | app/middleware/injector.py 88-93、154-159 行 |
-| 明面说明优于暗命令的设计注释 | app/middleware/injector.py 391-435 行 |
-| 记号回显检测与拉黑 | app/middleware/injector.py 161-169、186-193 行 |
-| AGENTS.md 路由与占位符替换 | app/routes/counter_offense.py 32-36、111-160 行 |
-| 三份说明书默认全文 | app/services/surface_config.py 66-136 行 |
-| 记号生成、假密钥 | app/services/canary.py 10-16、26-42 行 |
-| 会话水印码 | app/services/counter_intel.py 20-27 行 |
-| 假数据行加标记 | app/services/counter_intel.py 65-81 行 |
-| 假 RCE 输出追加标记 | app/services/honeypot_thinkphp.py 435-452 行 |
-| 引导注记 | app/services/honeypot_thinkphp.py 175-183、397-407 行 |
-| L1/L2 标记 | app/services/ai2shell.py 33-50、64-117 行 |
-| L2 回连端点 | app/routes/counter_recon.py 887-905 行 |
-| 防伪扫描特征 | scripts/sensor/sensor_mcp.py 31-36 行 |
-| 底部入口默认关 | app/services/portal_config.py 32-33 行 |
-
-## 附录 B：结论与出处对照
-
-| 结论 | 出处 |
-|---|---|
-| 6 个入口加记号闭环是骨架 | 本文第 1 节，附录 A 各入口 |
-| 已上钩（10 种事件）才解锁指令级字条 | agent_injection.py:375-379 注释原文；实测 |
-| 出厂 8 条模板只有 3 条 always 档开着 | agent_injection.py:227-316；实测 |
-| 记号是 HMAC(密钥, 会话) 前 24 位，和会话绑定；同会话回显加 70 分并拉黑 1 小时，换会话对不上 | canary.py:10-23；injector.py:186-193；实测 |
-| 假密钥按 IP 派生且能过门禁，假象一致 | canary.py:26-42 注释原文 |
-| 明面说明优于暗命令：对齐模型一致拒绝隐藏命令式字条 | injector.py:391-397 注释原文 |
-| AGENTS.md 蜜饵：读即记录 55 分、解锁指令级、每步带记号 | counter_offense.py:111-160；surface_config.py:66-136；实测 |
-| L1 默认开、L2 默认关，投放位置是假 RCE 输出尾部和数据行尾 | ai2shell.py:64-69；实测 |
-| 模板激活后内置兜底话术不再出现（两条来源互斥） | agent_injection.py:438-451 分支 |
-| 引导注记是明文环境输出，不是暗指令 | honeypot_thinkphp.py:175-183 注释原文 |
-| 防伪扫描不覆盖工具调用标记（盲区） | sensor_mcp.py:31-36 |
