@@ -92,17 +92,7 @@
 
 ## 7. Sigma 检测规则
 
-把上面的识别方法整理成了 7 条 Sigma 规则，放在 [sigma/](sigma/) 目录，主流 SIEM（Splunk、Elastic、Loki、Wazuh 等）可直接导入。Sigma 是通用日志检测规则的 YAML 格式，规则里写「在什么日志里、匹配什么条件」，后端负责翻译成各平台的查询语句。
-
-| 规则文件 | 抓什么 | 级别 |
-|---|---|---|
-| [agentcapture_ai_agent_cli_ua.yml](sigma/agentcapture_ai_agent_cli_ua.yml) | 编程机器人 UA（Codex、Claude Code、Cursor 等强特征） | medium |
-| [agentcapture_ai_agent_weak_ua_keywords.yml](sigma/agentcapture_ai_agent_weak_ua_keywords.yml) | 宽泛 AI 关键词，用于标注和狩猎，不建议直接告警 | low |
-| [agentcapture_ai_automation_pentest_framework_ua.yml](sigma/agentcapture_ai_automation_pentest_framework_ua.yml) | 浏览器自动化和攻击型 AI 框架 UA | high |
-| [agentcapture_ai_agent_custom_headers.yml](sigma/agentcapture_ai_agent_custom_headers.yml) | AI 工具自带的身份牌头（x-openai、x-agent 等） | medium |
-| [agentcapture_missing_browser_fetch_metadata.yml](sigma/agentcapture_missing_browser_fetch_metadata.yml) | 伪装浏览器但忘带真人头的请求 | medium |
-| [agentcapture_agent_canary_echo.yml](sigma/agentcapture_agent_canary_echo.yml) | 蜜罐字条记号被原样带回（配合注入笔记使用） | critical |
-| [agentcapture_bait_route_with_agent_ua.yml](sigma/agentcapture_bait_route_with_agent_ua.yml) | 蜜饵路径访问 + AI 机器人 UA，两个强信号叠加 | high |
+把上面的识别方法整理成了 7 条 Sigma 规则，直接贴在下面，主流 SIEM（Splunk、Elastic、Loki、Wazuh 等）可直接复制导入。Sigma 是通用日志检测规则的 YAML 格式，规则里写「在什么日志里、匹配什么条件」，后端负责翻译成各平台的查询语句。
 
 使用前注意三点：
 
@@ -110,28 +100,338 @@
 2. 「缺真人头」这条规则先确认日志管道保留了 sec-fetch 和 accept-language 头。很多采集端默认只留 UA，头被裁掉时这条规则会全部误报。
 3. 严重级别是按参考实现的打分给的：UA 类规则只能说明「来的是机器人」，记号回显（critical）才是实锤，两者处置等级不同。
 
-其中一条的原文，感受一下格式：
+**规则 1：编程机器人 UA（强特征）**。抓 Codex、Claude Code、Cursor 这类编程 AI 命令行工具，只收产品专属字符串，压误报。
 
 ```yaml
 title: AI Coding Agent CLI User-Agent
 id: e5117698-ac79-4206-a924-cd1360719be7
 status: experimental
+description: |
+    Detects user agents of AI coding agent CLIs (Codex, Claude Code, OpenCode,
+    Cursor, Aider, Cline, Windsurf, CodeBuddy, Junie, Gemini CLI, Kimi Code,
+    ZCode, Pi). Strong product-specific markers only; broad keywords are
+    covered by a separate lower-severity rule.
+    Markers derived from AgentCapture AGENT_SIGNATURES (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+    - attack.t1592.002
 logsource:
     category: webserver
 detection:
     selection:
         cs(User-Agent)|contains:
             - 'codex_cli_rs'
+            - 'codex_cli'
             - 'claude-cli'
+            - 'claude-code'
+            - 'claudecode'
+            - 'anthropic-client'
             - 'opencode'
+            - 'kimi-cli'
+            - 'kimi-code'
+            - 'kimicli'
             - 'cursor'
             - 'aider'
             - 'cline'
             - 'windsurf'
+            - 'codeium'
+            - 'codebuddy'
+            - 'junie'
+            - 'gemini-cli'
+            - 'google-genai'
+            - 'zcode'
+            - 'z-code'
+            - 'pi-agent'
+            - 'pi/cli'
     condition: selection
 falsepositives:
-    - Authorized security assessments using these CLIs
+    - Authorized security assessments and red team exercises using these CLIs
+    - CI/CD jobs that fetch pages with these tools
 level: medium
+```
+
+**规则 2：宽泛 AI 关键词**。claude、llm 这类词可能出现在正常软件名里，这条规则定位是标注和狩猎，不建议直接当告警。
+
+```yaml
+title: AI Agent Weak User-Agent Keywords
+id: 1211cf27-580a-422a-83ec-395ad8a4e482
+status: experimental
+description: |
+    Broad AI-related keywords in user agents. These substrings may appear in
+    benign software, so this rule is informational: use for enrichment and
+    hunting, not for blocking.
+    Markers derived from AgentCapture risk-engine word lists (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs(User-Agent)|contains:
+            - 'chatgpt'
+            - 'gptbot'
+            - 'oai-searchbot'
+            - 'claude'
+            - 'gpt-4'
+            - 'llm'
+            - 'ai-agent'
+            - 'langchain'
+            - 'crewai'
+            - 'autogpt'
+            - 'gemini'
+            - 'kimi'
+            - 'moonshot'
+            - 'copilot'
+    condition: selection
+falsepositives:
+    - Benign software whose name contains these keywords (e.g. GitHub Copilot editor traffic)
+    - Legitimate AI crawlers that identify themselves (GPTBot, search bots)
+level: low
+```
+
+**规则 3：浏览器自动化和攻击型 AI 框架 UA**。这些工具会自主执行动作，级别最高，结合蜜饵路径访问建议立即人工复核。
+
+```yaml
+title: AI Automation and Pentest-Agent Framework User-Agent
+id: db6b7be0-0cfc-4a0a-889e-7e9775606362
+status: experimental
+description: |
+    Detects user agents of browser-automation stacks (browser-use, Playwright,
+    Puppeteer, headless Chrome) and AI pentest-agent frameworks (HexStrike,
+    Strix, PentAGI, PentestAgent, SlingShoot, ARTEX, CyberStrikeAI, sapper).
+    Markers derived from AgentCapture AGENT_UA_MARKERS (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+    - attack.execution
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs(User-Agent)|contains:
+            - 'browser-use'
+            - 'playwright'
+            - 'puppeteer'
+            - 'headlesschrome'
+            - 'langchain'
+            - 'crewai'
+            - 'autogpt'
+            - 'auto-gpt'
+            - 'hexstrike'
+            - 'strix'
+            - 'pentagi'
+            - 'pentestagent'
+            - 'pentest-agent'
+            - 'slingshoot'
+            - 'sling-shoot'
+            - 'artex'
+            - 'cyberstrikeai'
+            - 'cyberstrike-ai'
+            - 'sapper'
+    condition: selection
+falsepositives:
+    - Internal browser-automation jobs (monitoring screenshots, E2E tests)
+    - Authorized pentest drills using these frameworks
+level: high
+```
+
+**规则 4：AI 工具自带身份牌头**。不看 UA，看请求头。这 5 个自定义头是 AI 基础设施自己加的。
+
+```yaml
+title: AI Agent Custom Request Headers
+id: 4598d769-ffce-479c-9e81-ac29f1f1dc18
+status: experimental
+description: |
+    Detects AI-infrastructure custom headers sent to a web server. These
+    headers are added by AI agent stacks themselves and identify AI-driven
+    traffic regardless of what the user agent claims.
+    Headers derived from AgentCapture AGENT_HEADER_CLUES (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1592.002
+logsource:
+    category: webserver
+detection:
+    selection:
+        # adjust header field names to your log pipeline
+        x-openai|exists: true
+    selection_alt:
+        x-anthropic|exists: true
+    selection_alt2:
+        x-langfuse|exists: true
+    selection_alt3:
+        x-agent|exists: true
+    selection_alt4:
+        x-automated|exists: true
+    condition: 1 of selection*
+falsepositives:
+    - Internal services that legitimately use these header names
+level: medium
+```
+
+**规则 5：伪装浏览器但忘带真人头**。Sec-Fetch-Site 和 Accept-Language 是浏览器必带的，脚本伪装时经常漏。null 表示「日志里没有这个字段」。
+
+```yaml
+title: Web Request Missing Browser Fetch-Metadata Headers
+id: 410d9018-16b0-47ea-b9a6-d80b49fe7e57
+status: experimental
+description: |
+    Real browsers always send Sec-Fetch-Site and Accept-Language headers.
+    Scripts that spoof a browser user agent commonly forget them, so their
+    absence on non-static requests is a browser-impersonation signal that
+    works even when the user agent is faked.
+    Derived from AgentCapture MISSING_HUMAN_HEADERS heuristic (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs-method:
+            - 'GET'
+            - 'POST'
+        # null matches only when the field is absent from the log entry
+        sec-fetch-site: null
+        accept-language: null
+    filter_static:
+        c-uri|endswith:
+            - '.css'
+            - '.js'
+            - '.png'
+            - '.jpg'
+            - '.svg'
+            - '.ico'
+            - '.woff'
+            - '.woff2'
+    condition: selection and not filter_static
+falsepositives:
+    - API clients, monitoring probes, health checks, curl-based scripts
+    - Log sources that strip headers before ingestion (check your pipeline first)
+level: medium
+```
+
+**规则 6：蜜罐字条记号被带回**。整条体系里唯一的 critical：只有把蜜罐假指令读进去并照做的机器人，才会把记号放在这个头里送回来。命中即实锤。
+
+```yaml
+title: Honeypot Agent Canary Token Echoed Back
+id: eba55816-64bc-4350-b10c-9b8622869786
+status: experimental
+description: |
+    The honeypot plants a per-session canary token in its deception content
+    (hidden directives, instruction-file baits, block pages) and instructs the
+    AI agent to send it back in the X-Agent-Canary header. Any request that
+    carries this header is authoritative proof that the client read the
+    planted content and acted on it. Treat the source as confirmed AI-agent
+    activity and block or isolate it.
+    Derived from AgentCapture canary-echo detection (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.execution
+    - attack.t1595.002
+logsource:
+    category: webserver
+detection:
+    selection:
+        # rename to the header your honeypot actually plants
+        X-Agent-Canary: '*'
+    condition: selection
+falsepositives:
+    - None expected; only a client that followed the planted directive sends this header
+level: critical
+```
+
+**规则 7：蜜饵路径访问叠加 AI 机器人 UA**。两个强信号同时命中：访问了假备份、假配置、机器人说明书等蜜饵路径，且 UA 是已知 AI 机器人。
+
+```yaml
+title: Honeypot Bait Route Access from AI Agent User-Agent
+id: abefa950-de87-4c2d-b43c-e720a8a0e404
+status: experimental
+description: |
+    Combines two strong signals: access to honeypot bait routes (fake backups,
+    fake config dumps, agent instruction files, fake internal docs) AND an
+    AI-agent user agent. High-confidence deception hit.
+    Lists derived from AgentCapture risk-engine and counter-offense routes
+    (snapshot 728ffa0).
+references:
+    - https://github.com/Tcotl/AgentCapture
+author: agentic-adr-notes
+date: 2026-11-25
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+logsource:
+    category: webserver
+detection:
+    selection_bait:
+        c-uri|startswith:
+            - '/archive/'
+            - '/d/'
+        c-uri:
+            - '/AGENTS.md'
+            - '/CLAUDE.md'
+            - '/.cursorrules'
+            - '/internal/openapi.json'
+            - '/docs/runbook-internal.md'
+            - '/archive/admin/staging-login'
+    selection_ai_ua:
+        cs(User-Agent)|contains:
+            - 'codex'
+            - 'claude'
+            - 'opencode'
+            - 'kimi'
+            - 'cursor'
+            - 'aider'
+            - 'cline'
+            - 'windsurf'
+            - 'codebuddy'
+            - 'junie'
+            - 'gemini'
+            - 'browser-use'
+            - 'playwright'
+            - 'puppeteer'
+            - 'headlesschrome'
+            - 'langchain'
+            - 'crewai'
+            - 'autogpt'
+            - 'hexstrike'
+            - 'strix'
+            - 'pentagi'
+            - 'pentestagent'
+            - 'pentest-agent'
+            - 'artex'
+            - 'cyberstrikeai'
+            - 'slingshoot'
+            - 'sapper'
+    condition: selection_bait and selection_ai_ua
+falsepositives:
+    - Authorized assessment drills that walk the bait routes on purpose
+level: high
 ```
 
 ## 8. 注意事项
